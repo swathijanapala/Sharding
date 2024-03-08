@@ -71,7 +71,7 @@ def add():
 
     for i in servers:
         try:
-            result = subprocess.run(["python","Helper.py",str(i),"distributedsystems_net1","flaskserver1","add"],stdout=subprocess.PIPE, text=True, check=True)
+            result = subprocess.run(["python","Helper.py",str(i),"sharding_net1","flaskserver1","add"],stdout=subprocess.PIPE, text=True, check=True)
             if(obj.dic.get(i)==None):
                 obj.N+=1
                 obj.dic[i] = obj.N
