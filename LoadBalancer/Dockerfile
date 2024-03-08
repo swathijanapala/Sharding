@@ -1,16 +1,14 @@
 
-FROM  python:3.10-slim 
-COPY . /LoadBalancer
-
-WORKDIR /LoadBalancer
-
-ENV server_id = 1
+FROM flaskdocker-base
 RUN apt-get update
-RUN apt-get -y install sudo
 
-# RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
-RUN apt-get update && apt-get install -y docker.io
-EXPOSE 5000
-# run pip install flask
-CMD ["python","App.py"]
+RUN pip install --break-system-packages --upgrade pip
+COPY . /docker-entrypoint-initdb.d/
+# RUN pip install --break-system-packages -r /docker-entrypoint-initdb.d/requirements.txt
+
+WORKDIR /docker-entrypoint-initdb.d/
+ENV MYSQL_ROOT_PASSWORD="user12"
+# ENV MYSQL_USER="root"
+ENV MYSQL_DATABASE="STUDENT"
+
+# CMD ["python3","docker-entrypoint-initdb.d/App.py&"]

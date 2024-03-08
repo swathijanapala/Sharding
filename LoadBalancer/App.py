@@ -5,8 +5,21 @@ import ast
 import requests
 import subprocess
 import LoadBalancer as lb
+import Helper as hp
 import uuid
 import random
+import mysql.connector
+
+
+db_config = {
+    
+    'host': 'lbserver1',
+    'user': 'root',
+    'password': 'user12',
+    'database': 'STUDENT',
+    'port' : 3306
+}
+
 
 app = Flask(__name__)
 app.config.from_object('config.Config')
@@ -15,32 +28,56 @@ obj = lb.ConsistentHashing()
 
 # resposes all the replicas of the servers
 
-
-@app.route("/rep",methods = ["GET"])
-def rep():
+@app.route("/init", methods=["POST"])
+def init():
     try:
-            result = subprocess.run(["python","Helper.py",],stdout=subprocess.PIPE, text=True, check=True)
-            replicas = result.stdout.splitlines()
-            
-    except:
-        msg = {
-        "message":"<Error>  Unable to process your request",
-        "status" : "Faliure"
-        }
-        return jsonify(msg),400
-    
-    app.config['REPLICAS'] = replicas
-    app.config["N"] = len(replicas)
-    msg = {
-        "message":
-        {
-            
-            "N" : app.config["N"],
-            "replicas" :  app.config["REPLICAS"]
-        },
-        "status" : "Successful"
-    }
-    return make_response(jsonify(msg),200)
+        req_payload = request.json
+
+        # Validate the payload structure
+        if 'N' in req_payload and 'schema' in req_payload and 'shards' in req_payload and 'servers' in req_payload:
+            N = req_payload.get('N')
+            schema = req_payload.get('schema', {})
+            columns = schema.get('columns', [])
+            dtypes = schema.get('dtypes', [])
+            shards = req_payload.get('shards', [])
+            servers = req_payload.get('servers', {})
+
+            #result = subprocess.run(["python","Helper.py",server_name,"remove"],stdout=subprocess.PIPE, text=True, check=True)
+             
+            connection = mysql.connector.connect(**db_config)
+            # Initialize tables
+            initialize_result = hp.initialize_tables(connection)
+            if 'error' in initialize_result:
+                return jsonify({"error": f"An error occurred during initialization: {initialize_result['error']}"}), 500
+
+            # Insert shard information into ShardT table
+            shard_insert_result = hp.insert_shard_info(connection,shards)
+            if 'error' in shard_insert_result:
+                return jsonify({"error": f"An error occurred during shard info insertion: {shard_insert_result['error']}"}), 500
+
+            # Insert server-shard mapping into MapT table
+            mapping_insert_result = hp.insert_server_shard_mapping(connection,servers)
+            if 'error' in mapping_insert_result:
+                return jsonify({"error": f"An error occurred during server-shard mapping insertion: {mapping_insert_result['error']}"}), 500
+
+            connection.close()
+            # Initialize shard tables for each server
+            config_responses = {}
+            for server, server_shards in servers.items():
+                config_payload = {
+                    "schema": schema,
+                    "shards": server_shards
+                }
+                config_response = requests.post(f"http://{server}:5000/config", json=config_payload).json()
+                config_responses[server] = config_response
+
+            return jsonify({"message": "Configured Database", "status": "success", "config_responses": config_responses}), 200
+
+        return jsonify({"error": "Invalid payload structure"}), 400
+
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
 
 #add servers based on the request
 
@@ -200,12 +237,13 @@ def errorPage(k):
     return "Page not found"
 
 if __name__ == "__main__":
-    # 3 replicas of server are maintained
-    for i in ["server1","server2","server3"]:
+    # 6 replicas of server are maintained
+    for i in ["server0","server1","server2","server3","server4","server5"]:
         try:
-            result = subprocess.run(["python","Helper.py",str(i),"distributedsystems_net1","flaskserver1","add"],stdout=subprocess.PIPE, text=True, check=True)
+            result = subprocess.run(["python3","Helper.py",str(i),"sharding_net1","mysqlserver","add"],stdout=subprocess.PIPE, text=True, check=True)
         except Exception as e:
-            pass
+            # pass
+            print("error",e)
         if(obj.dic.get(i)==None):
             obj.N+=1
             obj.dic[i] = obj.N

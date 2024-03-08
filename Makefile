@@ -15,4 +15,4 @@ stop:
 	fi
 
 	docker rmi -f loadbalancer
-	docker rmi -f flaskserver1
+	docker rmi -f fserver
