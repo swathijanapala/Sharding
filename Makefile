@@ -1,5 +1,8 @@
 run:
 	docker compose up -d
+remove:
+	docker rm server1
+	docker rmi fserver
 
 stop:
 	docker compose down

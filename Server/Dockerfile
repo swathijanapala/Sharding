@@ -1,19 +1,14 @@
-FROM  python:3.10-slim 
 
-COPY . /Server
-
-WORKDIR /Server
-EXPOSE 5000
-# COPY requirements.txt .
-
-# RUN --mount=type=cache,target=/root/.cache/pip \
-#     pip3 install -r requirements.txt
-
-# RUN --mount=type=cache,target=/root/.cache/pip \
-#     pip3 install -r requirements.txt
-
-RUN pip install --trusted-host pypi.python.org flask
+FROM mysql:8.0.36-debian
+RUN apt-get update
+RUN apt-get install -y \
+    python3-full \
+    python3-pip
+RUN pip install --break-system-packages --upgrade pip
+COPY . /docker-entrypoint-initdb.d/
+RUN pip install --break-system-packages -r /docker-entrypoint-initdb.d/requirements.txt
 
 
-# run pip install flask
-CMD ["python","App.py"]
+ENV MYSQL_ROOT_PASSWORD="user12"
+# ENV MYSQL_USER="root"
+ENV MYSQL_DATABASE="STUDENT"
