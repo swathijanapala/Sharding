@@ -8,6 +8,7 @@ import LoadBalancer as lb
 import Helper as hp
 import uuid
 import random
+import threading
 import mysql.connector
 
 
@@ -25,16 +26,30 @@ app = Flask(__name__)
 app.config.from_object('config.Config')
 obj = lb.ConsistentHashing()
 
+#global schema
 
-# resposes all the replicas of the servers
+def config_shards(servers):
+    global schema
+    config_responses = {}
+    for server, server_shards in servers.items():
+        config_payload = {
+            "schema": schema,
+            "shards": server_shards
+        }
+        config_response = requests.post(f"http://{server}:5000/config/{server}", json=config_payload).json()
+        #if(config_response.status_code==500):
+        #break
+        config_responses[server] = config_response
+    return jsonify({"message": "Configured Database", "status": "success", "config_responses": config_responses}), 200
 
 @app.route("/init", methods=["POST"])
 def init():
     try:
         req_payload = request.json
 
-        # Validate the payload structure
         if 'N' in req_payload and 'schema' in req_payload and 'shards' in req_payload and 'servers' in req_payload:
+            global config,schema
+            config=req_payload
             N = req_payload.get('N')
             schema = req_payload.get('schema', {})
             columns = schema.get('columns', [])
@@ -42,36 +57,23 @@ def init():
             shards = req_payload.get('shards', [])
             servers = req_payload.get('servers', {})
 
-            #result = subprocess.run(["python","Helper.py",server_name,"remove"],stdout=subprocess.PIPE, text=True, check=True)
-             
             connection = mysql.connector.connect(**db_config)
-            # Initialize tables
+            
             initialize_result = hp.initialize_tables(connection)
             if 'error' in initialize_result:
                 return jsonify({"error": f"An error occurred during initialization: {initialize_result['error']}"}), 500
 
-            # Insert shard information into ShardT table
+            
             shard_insert_result = hp.insert_shard_info(connection,shards)
             if 'error' in shard_insert_result:
                 return jsonify({"error": f"An error occurred during shard info insertion: {shard_insert_result['error']}"}), 500
 
-            # Insert server-shard mapping into MapT table
             mapping_insert_result = hp.insert_server_shard_mapping(connection,servers)
             if 'error' in mapping_insert_result:
                 return jsonify({"error": f"An error occurred during server-shard mapping insertion: {mapping_insert_result['error']}"}), 500
 
             connection.close()
-            # Initialize shard tables for each server
-            config_responses = {}
-            for server, server_shards in servers.items():
-                config_payload = {
-                    "schema": schema,
-                    "shards": server_shards
-                }
-                config_response = requests.post(f"http://{server}:5000/config", json=config_payload).json()
-                config_responses[server] = config_response
-
-            return jsonify({"message": "Configured Database", "status": "success", "config_responses": config_responses}), 200
+            return config_shards(servers)
 
         return jsonify({"error": "Invalid payload structure"}), 400
 
@@ -79,105 +81,235 @@ def init():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 
+@app.route('/status', methods=['GET'])
+def get_status():
+    global config
+
+    if config is None:
+        return jsonify({"error": "Database configuration not set"}), 500
+
+    return jsonify(config), 200
+        
 #add servers based on the request
 
-@app.route("/add",methods = ["POST"])
-def add():
-    try:
-        servers = ast.literal_eval(request.args['replicas'])
-        n = int(request.args['n'])
-    except:
-        msg = {
-                "message":"<Error> Unable to create some container(s)",
-                "status" : "Faliure"
-                }
-        return make_response(jsonify(msg),400)
-    
-    
-    if(n<len(servers)):
-        msg = {
-        "message":"<Error> Length of hostname list is more than newly added instances",
-        "status" : "Faliure"
-        }
-        return make_response(jsonify(msg),400)
-    # when n is greater than servers instances given then random server containers are created
-    elif(n>len(servers)):
-        k = n-len(servers)
-        for i in range(k):
-            servers.append("Sa1wr2"+str(obj.N+1+i))
+@app.route('/add', methods=['POST'])
+def add_servers():
+    #global config_res
 
-    for i in servers:
-        try:
-            result = subprocess.run(["python","Helper.py",str(i),"sharding_net1","flaskserver1","add"],stdout=subprocess.PIPE, text=True, check=True)
-            if(obj.dic.get(i)==None):
-                obj.N+=1
-                obj.dic[i] = obj.N
-            obj.add_server(obj.dic[i])
-            #implement hashing
-        except:
-            msg = {
-                "message":"<Error> Unable to create some container(s)",
-                "status" : "Faliure"
-                }
-            return make_response(jsonify(msg),400)
-            
-    #add here
-    return redirect(url_for("rep"))
+    req_payload = request.json
 
- 
-# removes servers specified in the request
-@app.route("/rem",methods = ["POST"])
+    if 'n' in req_payload and 'new_shards' in req_payload and 'servers' in req_payload:
 
-def rem():
-    try:
-        servers = ast.literal_eval(request.args['replicas'])
-        n = int(request.args['n'])
-    except:
-        msg = {
-            "message":"<Error>  Unable to remove some container(s)",
-            "status" : "Faliure"
-            }
-        return make_response(jsonify(msg),400) 
-    
-    if(n<len(servers)):
-        msg = {
-        "message":"<Error>  Length of hostname list is more than removable instances",
-        "status" : "Faliure"
-        }
-        return make_response(jsonify(msg),400)
-    elif(n>=len(servers)):
-        result = subprocess.run(["python","Helper.py",],stdout=subprocess.PIPE, text=True, check=True)
-        replicas = result.stdout.splitlines()
-        #print(len(replicas),n, flush=True)
-        if(len(replicas)-n<3):
-            msg = {
-            "message":"<Error>  Cannot remove servers as the available server count after this operation will be less than 3.",
-            "status" : "Faliure"
-            }
-            return make_response(jsonify(msg),400)
-        k = n-len(servers)
-        if(k>0):
+        connection = mysql.connector.connect(**db_config)
+        n = req_payload.get('n')
+        new_shards = req_payload.get('new_shards', [])
+        servers = req_payload.get('servers', {})
+
+        if n > len(servers):
+            return jsonify({"message": "Number of new servers (n) is greater than newly added instances", "status": "failure"}), 400
+        
+        k=n-len(servers)
+        new_server_ids=list(servers.keys())
+        print(new_server_ids,flush=True)
+
+        for i in new_server_ids:
             try:
-                for i in servers:
-                    replicas.remove(i)
-            except:
-                pass
-            
-            servers = servers+random.sample(replicas, k)
-
-    for i in servers:
+                result = subprocess.run(["python3","Helper.py",str(i),"sharding_net1","mysqlserver","add"],stdout=subprocess.PIPE, text=True, check=True)
+                '''
+                if(obj.dic.get(i)==None):
+                    obj.N+=1
+                    obj.dic[i] = obj.N
+                    obj.add_server(obj.dic[i])
+                '''
+            except Exception as e:
+                msg = {
+                    "message":"<Error> Unable to create some container(s),"+str(e),
+                    "status" : "Faliure"
+                }
+                return make_response(jsonify(msg),400)
+        #obj.N+=k
         try:
-            result = subprocess.run(["python","Helper.py",str(i),"remove"],stdout=subprocess.PIPE, text=True, check=True)
-            #implement hashing
-            obj.remove_server(obj.dic[i])
-            
+            config_shards(servers)
+            cur_shards=hp.get_shard_ids(connection)
+            old_shards=[]
+            for i in new_server_ids:
+                if i in cur_shards:
+                    old_shards.append(i)
+
+            for j in old_shards:
+                #servers_list=servers_given_shard(j,connection)
+                #server_id=lb.get_servers_list(servers_list)
+                server_id='server1'
+                config_payload = {
+                    "shards": [j]
+                }
+                config_response = requests.get(f"http://{server_id}:5000/copy", json=config_payload).json()
+                #adding should be write here..
+
+            shard_insert_result = hp.insert_shard_info(connection,new_shards)
+            if 'error' in shard_insert_result:
+                return jsonify({"error": f"An error occurred during shard info insertion: {shard_insert_result['error']}"}), 500
+
+            mapping_insert_result = hp.insert_server_shard_mapping(connection,servers)
+            if 'error' in mapping_insert_result:
+                return jsonify({"error": f"An error occurred during server-shard mapping insertion: {mapping_insert_result['error']}"}), 500
+
+            connection.close()   ####look at once
+
+            return jsonify({
+                    "N": n,
+                    "message": f"Add Server:{', '.join(new_server_ids)}",
+                    "status": "success"
+                }), 200
+
         except:
             msg = {
-            "message":"<Error>  Unable to remove some container(s)",
-            "status" : "Faliure"
+                "message":"<Error> Unable to create database(s)",
+                    "status" : "Faliure"
             }
             return make_response(jsonify(msg),400)
-    return redirect(url_for("rep"))
+        
+
+    return jsonify({"error": "Invalid payload structure"}), 400
+
+#return redirect(url_for("rep"))
+
+@app.route("/rm", methods=["DELETE"])
+def remove_servers():
+    try:
+        req_payload = request.json
+
+        if 'n' in req_payload and 'servers' in req_payload:
+            n = req_payload['n']
+            servers_to_remove = req_payload['servers']
+
+            connection = mysql.connector.connect(**db_config)
+            result = subprocess.run(["python3","Helper.py",],stdout=subprocess.PIPE, text=True, check=True)
+            current_servers = result.stdout.splitlines()
+
+            # Perform sanity checks
+            if len(servers_to_remove) > n:
+                return jsonify({"message": "<Error> Length of server list is more than removable instances", "status": "failure"}), 400
+
+            elif(len(servers_to_remove)<n):
+                k=n-len(servers_to_remove)
+                remaining_servers = list(set(current_servers) - set(servers_to_remove))
+                servers_to_remove.extend(random.sample(remaining_servers,k))
+
+    
+            rem_servers=len(current_servers)-n
+            if(rem_servers<6):
+                msg = {
+                    "message":"<Error>  Cannot remove servers as the available server count after this operation will be less than 6.",
+                    "status" : "Faliure"
+                }
+                return make_response(jsonify(msg),400)
+
+            for i in servers_to_remove:
+                try:
+                    result = subprocess.run(["python3","Helper.py",str(i),"remove"],stdout=subprocess.PIPE, text=True, check=True)
+                    #implement hashing
+                    obj.remove_server(obj.dic[i])
+            
+                except:
+                    msg = {
+                        "message":"<Error>  Unable to remove some container(s)",
+                        "status" : "Faliure"
+                    }
+                    return make_response(jsonify(msg),400)
+
+            hp.update_mapT(connection,servers_to_remove)
+            connection.close()
+
+            return jsonify({"message": {"N": rem_servers, "servers":servers_to_remove}, "status": "successful"}), 200
+
+        return jsonify({"error": "Invalid payload structure"}), 400
+
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+
+@app.route("/read", methods=["POST"])
+def reading_data():
+    try:
+        req_payload = request.json
+
+        if 'Stud_id' in req_payload:
+            stud_id_range = req_payload['Stud_id']
+            low = stud_id_range['low']
+            high = stud_id_range['high']
+
+            connection = mysql.connector.connect(**db_config)            
+            shards_queried = hp.get_queried_shards_with_ranges(connection,low, high)
+            data=[]
+            for i,j in shards_queried.items():
+                servers_shard=servers_given_shard(i,connection)
+                #mapping=get(servers_shard)
+                mapping_serverid='server1'   ###### consistent hashing
+                config_payload = {
+                    "shard": i,
+                    "Studi_id" : j
+                }
+                config_response = requests.post(f"http://{mapping_serverid}:5000/read", json=config_payload).json()
+                data.extend(config_response)
+            connection.close()
+
+            return jsonify({"shards_queried": list(shards_queried.keys()), "data": data, "status": "success"}), 200
+
+        return jsonify({"error": "Invalid payload structure"}), 400
+
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+shard_locks = {}
+def intialize_locks():
+    connection = mysql.connector.connect(**db_config) 
+    shard_ids=hp.get_shard_ids(connection)
+    #here kength is enough
+    for i in range(1, len(shard_ids)+1):
+        shard_locks[i] = threading.Lock()
+    connection.close()
+
+def acquire_lock(shard_id):
+    if shard_id in shard_locks:
+        shard_locks[shard_id].acquire()
+
+def release_lock(shard_id):
+    if shard_id in shard_locks:
+        shard_locks[shard_id].release()
+
+@app.route('/write', methods=['POST'])
+def write_data_load_balancer():
+    try:
+        request_payload = request.json
+        data_entries = request_payload.get('data')
+        if data_entries and isinstance(data_entries, list):
+            if stud_id is not None and stud_name and stud_marks is not None:
+                connection = mysql.connector.connect(**db_config) 
+                ind_shard_data=hp.get_shard_ids_corresponding_write_operations(connection,data_entries)
+                for i,j in ind_shard_data.items():
+                    acquire_lock(shard_id)
+                    #server=get_server(i) #get server using consistent hashing
+                    server='server1'
+                    config_payload = {
+                        "shard": i,
+                        "curr_idx" : j['valid_idx'],
+                        "data":j['entries']
+                    }
+                    config_response = requests.post(f"http://{server}:5000/write", json=config_payload).json()
+                    release_lock(shard_id)
+
+                return jsonify({"message": f"{len(data_entries)} Data entries added", "status": "success"}), 200
+
+            else:
+                return jsonify({"error": "Invalid payload structure"}), 400
+        else:
+            return jsonify({"error": "Invalid payload structure"}), 400
+
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
 
 # routes requests to one of the avaliable servers
 
@@ -222,7 +354,7 @@ def pathRoute1(path):
             obj.N+=1
             server_name = "Sa1wasd"+str(obj.N)
             obj.dic[server_name] = obj.N
-            result = subprocess.run(["python","Helper.py",server_name,"distributedsystems_net1","flaskserver1","add"],stdout=subprocess.PIPE, text=True, check=True)
+            result = subprocess.run(["python3","Helper.py",server_name,"sharding_net1","mysqlserver","add"],stdout=subprocess.PIPE, text=True, check=True)
             obj.add_server(obj.dic[server_name])
             
 

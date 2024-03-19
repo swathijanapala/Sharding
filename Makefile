@@ -15,4 +15,4 @@ stop:
 	fi
 
 	docker rmi -f loadbalancer
-	docker rmi -f fserver
+	docker rmi -f mysqlserver

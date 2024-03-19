@@ -30,15 +30,11 @@ def main2(params):
 def get_docker_processes():
     try:
         # Run the docker ps command with custom formatting
-        result = subprocess.run(["docker", "ps","--filter", "ancestor=flaskserver1", "--format",'{{.Names}}'], capture_output=True, text=True, check=True)
+        result = subprocess.run(["docker", "ps","--filter", "ancestor=mysqlserver", "--format",'{{.Names}}'], capture_output=True, text=True, check=True)
 
-        # Extract container names from the output
         container_names = result.stdout.splitlines()
         for i in container_names:
             print(i)
-        # if(container_names):
-        #     print(container_names,end="")
-        # return container_names
 
     except subprocess.CalledProcessError as e:
         print(f"Error running 'docker ps' command: {e.stderr}")
@@ -47,7 +43,6 @@ def get_docker_processes():
 
 def initialize_tables(connection):
     try:
-        #connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
 
         # Initialize ShardT table
@@ -67,14 +62,13 @@ def initialize_tables(connection):
         create_mapt_table_query = '''
             CREATE TABLE IF NOT EXISTS MapT (
                 Shard_id VARCHAR(255),
-                Server_id INT
+                Server_id VARCHAR(255)
             );
         '''
         cursor.execute(create_mapt_table_query)
 
         connection.commit()
         cursor.close()
-        #connection.close()
 
     except Exception as e:
         return {"error": f"An error occurred while initializing tables: {str(e)}"}
@@ -84,7 +78,6 @@ def initialize_tables(connection):
 
 def insert_shard_info(connection,shards):
     try:
-        #connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
 
         for shard_info in shards:
@@ -96,13 +89,12 @@ def insert_shard_info(connection,shards):
                 shard_info['Stud_id_low'],
                 shard_info['Shard_id'],
                 shard_info['Shard_size'],
-                shard_info['valid_idx']
+                shard_info['Stud_id_low']
             ))
 
         connection.commit()
         cursor.close()
-        #connection.close()
-
+        
     except Exception as e:
         return {"error": f"An error occurred while inserting shard info: {str(e)}"}
 
@@ -111,7 +103,6 @@ def insert_shard_info(connection,shards):
 
 def insert_server_shard_mapping(connection,servers):
     try:
-      #connection = mysql.connector.connect(**db_config)
         #if connection is not None:
         cursor = connection.cursor()
 
@@ -125,12 +116,97 @@ def insert_server_shard_mapping(connection,servers):
 
         connection.commit()
         cursor.close()
-        #connection.close()
 
     except Exception as e:
         return {"error": f"An error occurred while inserting server-shard mapping: {str(e)}"}
 
     return {"message": "Server-shard mapping inserted successfully"}
+
+def get_shard_ids(connection):
+    try:
+        cursor = connection.cursor()
+        select_shard_ids_query = '''
+            SELECT DISTINCT Shard_id FROM ShardT;
+        '''
+        cursor.execute(select_shard_ids_query)
+        shard_ids = [row[0] for row in cursor.fetchall()]
+
+        connection.commit()
+        cursor.close()
+        return shard_ids
+    except Exception as e:
+        raise Exception(f"An error occurred while retrieving Shard IDs: {str(e)}")
+
+def servers_given_shard(shard,connection):
+    try:
+        cursor = connection.cursor()
+        select_servers_query = '''
+            SELECT Server_id FROM MapT WHERE Shard_id = %s;
+        '''
+        cursor.execute(select_servers_query, (shard,))
+        server_ids = [row[0] for row in cursor.fetchall()]
+        connection.commit()
+        cursor.close()
+        return server_ids
+    except Exception as e:
+        raise Exception(f"An error occurred while retrieving Server IDs for Shard {shard}: {str(e)}")
+
+def update_shardt_mapt_tables(connection,servers_to_remove):
+    cursor = connection.cursor()
+    for i in servers_to_remove:
+        cursor.execute('DELETE FROM MapT WHERE Server_id = %s', (i,))
+
+    connection.commit()
+    cursor.close()
+
+
+def get_queried_shards_with_ranges(connection, low, high):
+    queried_shards = []
+    try:
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute('SELECT Shard_id, Stud_id_low, Stud_id_low + Shard_size AS Stud_id_high FROM ShardT WHERE Stud_id_low <= %s AND Stud_id_low + Shard_size >= %s', (high, low))
+        result = cursor.fetchall()
+        if result:
+            for row in result:
+                shard_id = row['Shard_id']
+                stud_id_low = row['Stud_id_low']
+                stud_id_high = row['Stud_id_high']
+
+                ranges_within_shard = {}
+                ranges_within_shard["low"]=(max(stud_id_low, low))
+                ranges_within_shard["high"]=(min(stud_id_high, high))
+                queried_shards.append({"Shard_id": shard_id, "Ranges": ranges_within_shard})
+        cursor.close()
+
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+    return queried_shards
+
+def get_shard_ids_corresponding_write_operations(connection, entries):
+    try:
+        cursor = connection.cursor()
+        shard_data = {}
+        query = "SELECT Shard_id, valid_idx FROM ShardT WHERE Stud_id_low <= %s AND (Stud_id_low + Shard_size) > %s"
+
+        for entry in entries:
+            stud_id = entry['Stud_id']
+            cursor.execute(query, (stud_id, stud_id))
+            result = cursor.fetchone()
+            if result:
+                shard_id, valid_idx = result
+                if shard_id in shard_data:
+                    shard_data[shard_id]['entries'].append(entry)
+                else:
+                    shard_data[shard_id] = {'valid_idx': valid_idx, 'entries': [entry]}
+
+        return shard_data
+
+    except Exception as e:
+        print(f"An error occurred while fetching shard ids: {str(e)}")
+
+    finally:
+        connection.commit()
+        cursor.close()
 
 
 if __name__ == "__main__":
@@ -141,10 +217,6 @@ if __name__ == "__main__":
     elif(sys.argv[-1]=="remove"):
         main2(sys.argv)
     else:
-        #shards=sys.argv[1]
-        #servers=sys.argv[2]
-        #intialization(shards,servers)
-        #print(">>>>>>>>>>>>>> IN HELPER <<<<<<<<<<<")
         get_docker_processes()
 
 

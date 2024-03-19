@@ -45,21 +45,18 @@ db_config = {
 }
 
 
-def initialize_shard_tables(payload):
+def initialize_shard_tables(payload,server_id):
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
     except Exception as e:
         return "error"+str(e)
-    try:
-       
+    try:       
         # Extract schema and shards from the payload
         schema = payload.get('schema', {})
         columns = schema.get('columns', [])
         dtypes = schema.get('dtypes', [])
         shards = payload.get('shards', [])
-
-        
 
         # Create shard tables in the database
         for shard in shards:
@@ -70,29 +67,26 @@ def initialize_shard_tables(payload):
                     PRIMARY KEY (Stud_id)
                 );
             '''
-
             # print(create_table_query,flush=True)
             cursor.execute(create_table_query)
 
         connection.commit()
 
-        return {"message": f"{', '.join([f'Server1:{shard}' for shard in shards])} configured", "status": "success"}
-
+        return {"message": f"{', '.join([f'{server_id}:{shard}' for shard in shards])} configured", "status": "success"}
 
     except Exception as e:
         return {"error": f"An error occurred: {str(e)}"}
 
     
-
-@app.route('/config', methods=['POST'])
-def configure_shard_tables():
+@app.route('/config/<server_id>', methods=['POST'])
+def configure_shard_tables(server_id):
 
     try:
         request_payload = request.json
 
         # Validate the payload structure
         if 'schema' in request_payload and 'shards' in request_payload:
-            response = initialize_shard_tables(request_payload)
+            response = initialize_shard_tables(request_payload,server_id)
             return jsonify(response)
 
         return jsonify({"error": "Invalid payload structure"}), 400
