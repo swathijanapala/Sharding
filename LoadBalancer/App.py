@@ -384,15 +384,21 @@ def heartbeat(list_of_servers):
                     print(f"Server {server} is up and running.",flush=True)
                 else:
                     shard_ids = hp.get_shardid_given_server(connection,server)
+
                     print(f"Server {server} is down. Status code: {response.status_code}",flush=True)
-                    response = requests.get(f'http://127.0.0.1:5000/add')
+                    add_response = requests.post('http://127.0.0.1:5000/add', json={'n': '1','new_shards':[],'servers':{f'{server}':[f'{shard_ids[0]}',f'{shard_ids[1]}']}})
+                    if add_response.status_code == 200:
+                        print("New server added successfully.")
+                    else:
+                        print("Failed to add a new server.")
             except requests.ConnectionError:
-                add_response = requests.post('http://127.0.0.1:5000/add', json={'n': 'example'})
+                print(f"Failed to connect to server {server}.",flush=True)
+                add_response = requests.post('http://127.0.0.1:5000/add', json={'n': '1','new_shards':[],'servers':{f'{server}':[f'{shard_ids[0]}',f'{shard_ids[1]}']}})
                 if add_response.status_code == 200:
                     print("New server added successfully.")
                 else:
                     print("Failed to add a new server.")
-                print(f"Failed to connect to server {server}.",flush=True)
+                
         time.sleep(5)  # Wait for 5 seconds before checking again
 
 
