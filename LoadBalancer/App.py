@@ -374,6 +374,7 @@ def pathRoute1(path):
 # continuously check heartbeat
 # Define the heartbeat function
 def heartbeat(list_of_servers):
+    connection = mysql.connector.connect(**db_config) 
     while True:
         list_of_servers = list(set(list_of_servers))   # remove duplicates
         for server in list_of_servers:
@@ -382,6 +383,7 @@ def heartbeat(list_of_servers):
                 if response.status_code == 200:
                     print(f"Server {server} is up and running.",flush=True)
                 else:
+                    shard_ids = hp.get_shardid_given_server(connection,server)
                     print(f"Server {server} is down. Status code: {response.status_code}",flush=True)
                     response = requests.get(f'http://127.0.0.1:5000/add')
             except requests.ConnectionError:
