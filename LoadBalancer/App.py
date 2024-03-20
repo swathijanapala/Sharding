@@ -10,6 +10,9 @@ import uuid
 import random
 import threading
 import mysql.connector
+import threading
+import time
+
 
 
 db_config = {
@@ -25,7 +28,7 @@ db_config = {
 app = Flask(__name__)
 app.config.from_object('config.Config')
 obj = lb.ConsistentHashing()
-
+list_of_servers = []
 #global schema
 
 def config_shards(servers):
@@ -84,7 +87,7 @@ def init():
 @app.route('/status', methods=['GET'])
 def get_status():
     global config
-
+    
     if config is None:
         return jsonify({"error": "Database configuration not set"}), 500
 
@@ -121,6 +124,8 @@ def add_servers():
                     obj.dic[i] = obj.N
                     obj.add_server(obj.dic[i])
                 '''
+                # add the server to the list_of_servers
+                list_of_servers.append(str(i))
             except Exception as e:
                 msg = {
                     "message":"<Error> Unable to create some container(s),"+str(e),
@@ -210,7 +215,7 @@ def remove_servers():
                     result = subprocess.run(["python3","Helper.py",str(i),"remove"],stdout=subprocess.PIPE, text=True, check=True)
                     #implement hashing
                     obj.remove_server(obj.dic[i])
-            
+                    list_of_servers.remove(i)
                 except:
                     msg = {
                         "message":"<Error>  Unable to remove some container(s)",
@@ -244,7 +249,7 @@ def reading_data():
             shards_queried = hp.get_queried_shards_with_ranges(connection,low, high)
             data=[]
             for i,j in shards_queried.items():
-                servers_shard=servers_given_shard(i,connection)
+                servers_shard=hp.servers_given_shard(i,connection)
                 #mapping=get(servers_shard)
                 mapping_serverid='server1'   ###### consistent hashing
                 config_payload = {
@@ -284,12 +289,15 @@ def write_data_load_balancer():
     try:
         request_payload = request.json
         data_entries = request_payload.get('data')
+        stud_id = data_entries['Stud_id']
+        stud_name = data_entries['Stud_name']
+        stud_marks = data_entries['Stud_marks']
         if data_entries and isinstance(data_entries, list):
             if stud_id is not None and stud_name and stud_marks is not None:
                 connection = mysql.connector.connect(**db_config) 
                 ind_shard_data=hp.get_shard_ids_corresponding_write_operations(connection,data_entries)
                 for i,j in ind_shard_data.items():
-                    acquire_lock(shard_id)
+                    acquire_lock(i)
                     #server=get_server(i) #get server using consistent hashing
                     server='server1'
                     config_payload = {
@@ -298,7 +306,7 @@ def write_data_load_balancer():
                         "data":j['entries']
                     }
                     config_response = requests.post(f"http://{server}:5000/write", json=config_payload).json()
-                    release_lock(shard_id)
+                    release_lock(i)
 
                 return jsonify({"message": f"{len(data_entries)} Data entries added", "status": "success"}), 200
 
@@ -363,14 +371,44 @@ def pathRoute1(path):
     return make_response(jsonify(response.json()),200)
 
 
+# continuously check heartbeat
+# Define the heartbeat function
+def heartbeat(list_of_servers):
+    connection = mysql.connector.connect(**db_config) 
+    while True:
+        list_of_servers = list(set(list_of_servers))   # remove duplicates
+        for server in list_of_servers:
+            try:
+                response = requests.get(f'http://{server}:5000/heartbeat')
+                if response.status_code == 200:
+                    print(f"Server {server} is up and running.",flush=True)
+                else:
+                    shard_ids = hp.get_shardid_given_server(connection,server)
+                    print(f"Server {server} is down. Status code: {response.status_code}",flush=True)
+                    response = requests.get(f'http://127.0.0.1:5000/add')
+            except requests.ConnectionError:
+                add_response = requests.post('http://127.0.0.1:5000/add', json={'n': 'example'})
+                if add_response.status_code == 200:
+                    print("New server added successfully.")
+                else:
+                    print("Failed to add a new server.")
+                print(f"Failed to connect to server {server}.",flush=True)
+        time.sleep(5)  # Wait for 5 seconds before checking again
+
+
+
+
+
 @app.errorhandler(404)
 
 def errorPage(k):
     return "Page not found"
 
+
+
 if __name__ == "__main__":
     # 6 replicas of server are maintained
-    for i in ["server0","server1","server2","server3","server4","server5"]:
+    for i in ["server0","server1"]:#,"server2","server3","server4","server5"]:
         try:
             result = subprocess.run(["python3","Helper.py",str(i),"sharding_net1","mysqlserver","add"],stdout=subprocess.PIPE, text=True, check=True)
         except Exception as e:
@@ -380,7 +418,11 @@ if __name__ == "__main__":
             obj.N+=1
             obj.dic[i] = obj.N
         obj.add_server(obj.dic[i])
-            #implement hashing
+        list_of_servers.append(i)
+        #implement hashing
         
-    
+
+    # Create a thread to run the heartbeat function
+    heartbeat_thread = threading.Thread(target=heartbeat, args=(list_of_servers,))
+    heartbeat_thread.start()
     app.run(host = "0.0.0.0",debug = True)
