@@ -208,7 +208,6 @@ def get_shard_ids_corresponding_write_operations(connection, entries):
         connection.commit()
         cursor.close()
 
-
 if __name__ == "__main__":
     # print(sys.argv)
     # print(">>>>>>>>>>>>>> IN HELPER <<<<<<<<<<<")

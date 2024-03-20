@@ -92,10 +92,35 @@ def get_status():
         
 #add servers based on the request
 
+def copy_shard_data_to_given_server(connection,server_id,shard_id,write_server):
+    try:
+        config_payload = {
+            "shards": [shard_id]
+        }
+        config_response = requests.get(f"http://{server_id}:5000/copy", json=config_payload).json()
+        data_entries = config_response.get(f'{shard_id}', [])
+
+        valid_idx=get_valididx_given_shardid(connection,shard_id)
+        print(valid_idx,flush=True)
+        acquire_lock(shard_id)
+        config_payload2 = {
+            "shard": shard_id,
+            "curr_idx" : valid_idx,
+            "data": data_entries
+        }
+        config_response2 = requests.post(f"http://{write_server}:5000/write", json=config_payload2).json()
+        release_lock(shard_id)
+        if config_response2.get("status") == "success":
+            return True, "Data copied successfully"
+        else:
+            return False, "Failed to copy data to the given server"
+
+    except Exception as e:
+        return False, f"An error occurred while copying data to the given server: {str(e)}"
+    
+
 @app.route('/add', methods=['POST'])
 def add_servers():
-    #global config_res
-
     req_payload = request.json
 
     if 'n' in req_payload and 'new_shards' in req_payload and 'servers' in req_payload:
@@ -115,36 +140,34 @@ def add_servers():
         for i in new_server_ids:
             try:
                 result = subprocess.run(["python3","Helper.py",str(i),"sharding_net1","mysqlserver","add"],stdout=subprocess.PIPE, text=True, check=True)
-                '''
-                if(obj.dic.get(i)==None):
-                    obj.N+=1
-                    obj.dic[i] = obj.N
-                    obj.add_server(obj.dic[i])
-                '''
+                
             except Exception as e:
                 msg = {
                     "message":"<Error> Unable to create some container(s),"+str(e),
                     "status" : "Faliure"
                 }
                 return make_response(jsonify(msg),400)
-        #obj.N+=k
         try:
-            config_shards(servers)
-            cur_shards=hp.get_shard_ids(connection)
-            old_shards=[]
-            for i in new_server_ids:
-                if i in cur_shards:
-                    old_shards.append(i)
-
-            for j in old_shards:
-                #servers_list=servers_given_shard(j,connection)
-                #server_id=lb.get_servers_list(servers_list)
-                server_id='server1'
-                config_payload = {
-                    "shards": [j]
+            print('entered',flush=True)
+            try:
+                config_shards(servers)
+            except:
+                msg = {
+                "message":"<Error> Unable to create database(s)",
+                    "status" : "Faliure"
                 }
-                config_response = requests.get(f"http://{server_id}:5000/copy", json=config_payload).json()
-                #adding should be write here..
+                return make_response(jsonify(msg),400)
+            print('finished',flush=true)
+
+            cur_shards=hp.get_shard_ids(connection)
+            for ser,shards in servers.items():
+                for i in shards:
+                    if i in cur_shards:
+                        #servers_list=hp.servers_given_shard(i,connection)
+                        #server_id=lb.get_servers_list(servers_list)
+                        server_id='server1'
+                        print(ser,flush=True)
+                        copy_shard_data_to_given_server(connection,server_id,i,ser)
 
             shard_insert_result = hp.insert_shard_info(connection,new_shards)
             if 'error' in shard_insert_result:
@@ -209,7 +232,7 @@ def remove_servers():
                 try:
                     result = subprocess.run(["python3","Helper.py",str(i),"remove"],stdout=subprocess.PIPE, text=True, check=True)
                     #implement hashing
-                    obj.remove_server(obj.dic[i])
+                    #obj.remove_server(obj.dic[i])
             
                 except:
                     msg = {
