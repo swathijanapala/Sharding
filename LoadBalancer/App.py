@@ -33,12 +33,13 @@ list_of_servers = []
 
 def config_shards(servers):
     global schema
-    config_responses = {}
+    print(servers,flush=True)
     for server, server_shards in servers.items():
         config_payload = {
             "schema": schema,
             "shards": server_shards
         }
+
         config_response = requests.post(f"http://{server}:5000/config/{server}", json=config_payload).json()
         #if(config_response.status_code==500):
         #break
@@ -103,7 +104,7 @@ def copy_shard_data_to_given_server(connection,server_id,shard_id,write_server):
         config_response = requests.get(f"http://{server_id}:5000/copy", json=config_payload).json()
         data_entries = config_response.get(f'{shard_id}', [])
 
-        valid_idx=get_valididx_given_shardid(connection,shard_id)
+        valid_idx=hp.get_valididx_given_shardid(connection,shard_id)
         print(valid_idx,flush=True)
         acquire_lock(shard_id)
         config_payload2 = {
@@ -325,7 +326,6 @@ def write_data_load_balancer():
                 connection = mysql.connector.connect(**db_config) 
                 ind_shard_data=hp.get_shard_ids_corresponding_write_operations(connection,data_entries)
                 for i,j in ind_shard_data.items():
-                    acquire_lock(i)
                     #server=get_server(i) #get server using consistent hashing
                     server='server1'
                     config_payload = {
@@ -333,6 +333,7 @@ def write_data_load_balancer():
                         "curr_idx" : j['valid_idx'],
                         "data":j['entries']
                     }
+                    acquire_lock(i)
                     config_response = requests.post(f"http://{server}:5000/write", json=config_payload).json()
                     release_lock(i)
 
@@ -448,13 +449,14 @@ if __name__ == "__main__":
         except Exception as e:
             # pass
             print("error",e)
+        '''
         if(obj.dic.get(i)==None):
             obj.N+=1
             obj.dic[i] = obj.N
         obj.add_server(obj.dic[i])
         list_of_servers.append(i)
         #implement hashing
-        
+        '''
 
     # Create a thread to run the heartbeat function
     heartbeat_thread = threading.Thread(target=heartbeat, args=(list_of_servers,))
