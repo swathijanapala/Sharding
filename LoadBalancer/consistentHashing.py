@@ -126,18 +126,18 @@ class ShardHandle():
 
 
 
-sh = ShardHandle()
-sh.add_shard('sh1', ['s1', 's2', 'server6'])
-sh.add_shard('sh2', ['s2', 's3', 'ser32'])
+# sh = ShardHandle()
+# sh.add_shard('sh1', ['s1', 's2', 'server6'])
+# sh.add_shard('sh2', ['s2', 's3', 'ser32'])
 
-sh.add_shard('sh1', ['s'])
-sh.add_shard('sh2', ['s1', 's23', 'se'])
+# sh.add_shard('sh1', ['s'])
+# sh.add_shard('sh2', ['s1', 's23', 'se'])
 
 
-sh.remove_server_in_shard(['s1', 's', 's2'])
+# sh.remove_server_in_shard(['s1', 's', 's2'])
 
-print(sh.get_server('sh1'))
-print(sh.get_server('sh2'))
+# print(sh.get_server('sh1'))
+# print(sh.get_server('sh2'))
 
-print(sh.shards['sh1'].dic)
-print(sh.shards['sh2'].dic)
+# print(sh.shards['sh1'].dic)
+# print(sh.shards['sh2'].dic)
