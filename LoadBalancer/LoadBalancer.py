@@ -67,3 +67,63 @@ class ConsistentHashing:
     def request_mapping(self, i):
         hash = i**2 + 2*i + 17
         return hash
+
+
+
+class ShardHandle():
+
+    # for each shard one object is maintained in the dictionary
+    def __init__(self):
+        self.shards = {}
+        self.N = 0
+
+    # adding the new shard
+    def add_shard(self, sh_id, servers_lst):
+
+        # if shard not present initially
+        if (sh_id not in self.shards):
+          self.shards[sh_id] = ConsistentHashing()
+          self.N += 1
+
+        # Iterate over the servers list and add it into respective object of shrad_id
+        for i in servers_lst:
+            val = self.shards[sh_id].N   # get the current number of servers in this object of shard_id
+            self.shards[sh_id].add_server(val)
+            self.shards[sh_id].dic[val] = i
+            self.shards[sh_id].N += 1
+
+    # to get the server with shard id
+    def get_server(self, sh_id):
+
+        uId = random.randint(10e5+1, 10e6)
+        server_Id =  self.shards[sh_id].req_server(uId)
+        # In the object dictionary where servers numbers are stored return the corresponding server name
+        return self.shards[sh_id].dic[server_Id]
+
+    # To remove the server in the shard
+    def remove_server_in_shard(self, lst):
+
+        for server in lst:
+          for j in self.shards:
+
+            d = self.shards[j].dic
+            for key in d:
+              if d[key] == server:
+                self.shards[j].remove_server(key)
+
+
+
+
+# sh = ShardHandle()
+# sh.add_shard('sh1', ['s1', 's2', 'server6'])
+# sh.add_shard('sh2', ['s2', 's3', 'ser32'])
+
+# sh.add_shard('sh1', ['s'])
+# sh.add_shard('sh2', ['s1', 's23', 'se'])
+
+
+# sh.remove_server_in_shard(['s1', 's', 's2'])
+
+# print(sh.get_server('sh1'))
+# print(sh.get_server('sh2'))
+
