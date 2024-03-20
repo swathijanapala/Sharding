@@ -84,17 +84,18 @@ class ConsistentHashing:
 
 class ShardHandle():
 
+    # for each shard one object is maintained in the dictionary
     def __init__(self):
         self.shards = {}
         self.N = 0
 
+    # adding the new shard
     def add_shard(self, sh_id, servers_lst):
 
         # if shard not present initially
         if (sh_id not in self.shards):
           self.shards[sh_id] = ConsistentHashing()
           self.N += 1
-
 
         # Iterate over the servers list and add it into respective object of shrad_id
         for i in servers_lst:
@@ -103,14 +104,15 @@ class ShardHandle():
             self.shards[sh_id].dic[val] = i
             self.shards[sh_id].N += 1
 
+    # to get the server with shard id
     def get_server(self, sh_id):
 
         uId = random.randint(10e5+1, 10e6)
         server_Id =  self.shards[sh_id].req_server(uId)
-
         # In the object dictionary where servers numbers are stored return the corresponding server name
         return self.shards[sh_id].dic[server_Id]
 
+    # To remove the server in the shard
     def remove_server_in_shard(self, lst):
 
         for server in lst:
