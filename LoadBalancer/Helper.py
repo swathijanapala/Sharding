@@ -208,7 +208,28 @@ def get_shard_ids_corresponding_write_operations(connection, entries):
         connection.commit()
         cursor.close()
 
+# returns list of shardid corresponding to a server
+def get_shardid_given_server(server):
+    try:
+        cursor = connection.cursor()
+        shard_data = {}
+        query = f"SELECT Shard_Id from MapT where server_id = '{server}';"
+        cursor.execute(query)
+        result = cursor.fetchall()
+        shard_ids = []
+        if result:
+            for row in result:
+                shard_ids.append( row['Shard_id'])
+        return shard_ids
 
+    except Exception as e:
+        print(f"An error occurred while fetching shard ids: {str(e)}")
+
+    finally:
+        connection.commit()
+        cursor.close()
+
+    
 if __name__ == "__main__":
     # print(sys.argv)
     # print(">>>>>>>>>>>>>> IN HELPER <<<<<<<<<<<")
