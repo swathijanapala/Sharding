@@ -211,13 +211,11 @@ def get_shard_ids_corresponding_write_operations(connection, entries):
 def get_valididx_given_shardid(connection,shard_id):
     try:
         cursor = connection.cursor()
-        shard_data = {}
-        query = f"SELECT valid_idx from ShardT where Shard_id = '{shard_id}';"
-        cursor.execute(query)
+        query = "SELECT valid_idx FROM ShardT WHERE Shard_id = %s"
+        cursor.execute(query, (shard_id,))
         result = cursor.fetchone()
         if result:
-            return result
-
+            return result[0]
     except Exception as e:
         print(f"An error occurred while fetching shard ids: {str(e)}")
 
@@ -246,6 +244,23 @@ def get_shardid_given_server(connection,server):
     finally:
         connection.commit()
         cursor.close()
+
+
+def get_shard_id_by_stud_id(connection, stud_id):
+    try:
+        cursor = connection.cursor()
+        query = "SELECT Shard_id FROM ShardT WHERE Stud_id_low <= %s AND (Stud_id_low + Shard_size) > %s"
+        cursor.execute(query, (stud_id, stud_id))
+        result = cursor.fetchone()
+        if result:
+            return result[0]
+    except Exception as e:
+        print(f"An error occurred while fetching shard_id: {str(e)}")
+
+    finally:
+        connection.commit()
+        cursor.close()
+    return None
 
     
 if __name__ == "__main__":

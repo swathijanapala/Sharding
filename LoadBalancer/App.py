@@ -41,6 +41,7 @@ def config_shards(servers):
             "schema": schema,
             "shards": server_shards
         }
+        time.sleep(10)
         print('configging',flush=True)
         config_response = requests.post(f"http://{server}:5000/config/{server}", json=config_payload).json()
         print('over_configging',flush=True)
@@ -106,6 +107,7 @@ def copy_shard_data_to_given_server(connection,server_id,shard_id,write_server):
         }
         config_response = requests.get(f"http://{server_id}:5000/copy", json=config_payload).json()
         data_entries = config_response.get(f'{shard_id}', [])
+        print("copy_shard_data_to_given_server",data_entries,flush=True)
 
         valid_idx=hp.get_valididx_given_shardid(connection,shard_id)
         print(valid_idx,flush=True)
@@ -167,7 +169,7 @@ def add_servers():
                 config_shards(servers)
             except:
                 msg = {
-                "message":"<Error> Unable to create database(s)",
+                "message":"<Error> Unable to create shards in new servers(s)",
                     "status" : "Faliure"
                 }
                 return make_response(jsonify(msg),400)
@@ -279,24 +281,21 @@ def reading_data():
 
             connection = mysql.connector.connect(**db_config)            
             shards_queried = hp.get_queried_shards_with_ranges(connection,low, high)
-            print(shards_queried,flush=True)
             data=[]
             keys=[]
             for item in shards_queried:
                 shardid=item["Shard_id"]
                 keys.append(shardid)
                 servers_shard=hp.servers_given_shard(shardid,connection)
-                print(servers_shard,flush=True)
+                #print(servers_shard,flush=True)
                 #mapping=get(servers_shard)
                 mapping_serverid='server1'   ###### consistent hashing
                 config_payload = {
                     "shard": shardid,
                     "Stud_id" : item["Ranges"]
                 }
-                print(config_payload,flush=True)
                 config_response = requests.post(f"http://{mapping_serverid}:5000/read", json=config_payload).json()
-                data.extend(config_response)
-            print(data,flush=True)
+                data.extend(config_response['data'])
             connection.close()
 
             return jsonify({"shards_queried": keys, "data": data, "status": "success"}), 200
@@ -305,84 +304,6 @@ def reading_data():
 
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-
-#############
-@app.route('/update', methods=['PUT'])
-def update_student_info():
-
-    try:
-        req_payload = request.json
-        if 'stud_id' in req_payload and 'data' in req_payload:
-
-            stud_id = req_payload['stud_id']
-            data = req_payload['data']
-            connection = mysql.connector.connect(**db_config)
-            shard_id = hp.get_shard_ids_given_studId(stud_id)
-
-            servers_list = hp.servers_given_shard(shard_id, connection)
-            for server_id in servers_list:
-                
-                config_payload = {
-                    "shard": [shard_id],
-                    "stud_id" : stud_id,
-                    "data" : data
-                }
-
-                acquire_lock(shard_id)
-                config_response = requests.put(f"http://{server_id}:5000/update", json=config_payload).json()
-                release_lock(shard_id)
-
-            return jsonify({"message": f"Data entry for Stud_id: {stud_id} updated", 
-                            "status" : "success"}
-                            ), 200
-
-    except ValueError as ve:
-        return jsonify({"error": str(ve)}), 400
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-    finally:
-        if connection and connection.is_connected():
-            connection.close()
-
-
-@app.route('/del', methods=['DELETE'])
-def remove_student_info():
-
-    try:
-        req_payload = request.json
-        if 'stud_id' in req_payload:
-            
-            stud_id = req_payload['stud_id']
-            connection = mysql.connector.connect(**db_config)
-            shard_id = hp.get_shard_ids_given_studId(stud_id)
-
-            servers_list = hp.servers_given_shard(shard_id, connection)
-            for server_id in servers_list:
-                
-                config_payload = {
-                    "shard": [shard_id],
-                    "stud_id" : stud_id,
-                }
-
-                acquire_lock(shard_id)
-                config_response = requests.delete(f"http://{server_id}:5000/del", json=config_payload).json()
-                release_lock(shard_id)
-
-            return jsonify({"message": f"Data entry with Stud_id:{stud_id} removed", 
-                            "status" : "success"}
-                            ), 200
-
-    except ValueError as ve:
-        return jsonify({"error": str(ve)}), 400
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-    finally:
-        if connection and connection.is_connected():
-            connection.close()
-
-##########################
-
-
 
 
 shard_locks = {}
@@ -432,6 +353,79 @@ def write_data_load_balancer():
 
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
+#############
+@app.route('/update', methods=['PUT'])
+def update_student_info():
+
+    try:
+        req_payload = request.json
+        if 'Stud_id' in req_payload and 'data' in req_payload:
+
+            stud_id = req_payload['Stud_id']
+            data = req_payload['data']
+            connection = mysql.connector.connect(**db_config)
+            shard_id = hp.get_shard_id_by_stud_id(connection, stud_id)
+            servers_list = hp.servers_given_shard(shard_id, connection)
+            for server_id in servers_list:
+                config_payload = {
+                    "shard": shard_id,
+                    "Stud_id" : stud_id,
+                    "data" : data
+                }
+                acquire_lock(shard_id)
+                config_response = requests.put(f"http://{server_id}:5000/update", json=config_payload).json()
+                release_lock(shard_id)
+
+            return jsonify({"message": f"Data entry for Stud_id: {stud_id} updated", 
+                            "status" : "success"}
+                            ), 200
+
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    finally:
+        if connection and connection.is_connected():
+            connection.close()
+
+
+@app.route('/del', methods=['DELETE'])
+def remove_student_info():
+
+    try:
+        req_payload = request.json
+        if 'Stud_id' in req_payload:
+            
+            stud_id = req_payload['Stud_id']
+            connection = mysql.connector.connect(**db_config)
+            shard_id = hp.get_shard_id_by_stud_id(connection, stud_id)
+            servers_list = hp.servers_given_shard(shard_id, connection)
+            for server_id in servers_list:
+                
+                config_payload = {
+                    "shard": shard_id,
+                    "Stud_id" : stud_id,
+                }
+
+                acquire_lock(shard_id)
+                config_response = requests.delete(f"http://{server_id}:5000/del", json=config_payload).json()
+                release_lock(shard_id)
+
+            return jsonify({"message": f"Data entry with Stud_id:{stud_id} removed", 
+                            "status" : "success"}
+                            ), 200
+
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    finally:
+        if connection and connection.is_connected():
+            connection.close()
+
+##########################
 
 
 # routes requests to one of the avaliable servers

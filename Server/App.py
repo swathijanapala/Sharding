@@ -46,6 +46,7 @@ db_config = {
 
 
 def initialize_shard_tables(payload,server_id):
+    db_config['host'] = server_id
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
@@ -230,6 +231,7 @@ def read_data():
 
         if shard and stud_id_range and isinstance(stud_id_range, dict):
             response = read_data_entries(shard, stud_id_range)
+            print(response,flush=True)
             return jsonify(response), 200
         else:
             return jsonify({"error": "Invalid payload structure"}), 400
