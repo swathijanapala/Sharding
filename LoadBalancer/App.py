@@ -13,7 +13,7 @@ import mysql.connector
 import threading
 import time
 
-
+chash = lb.ShardHandle()
 
 db_config = {
     
@@ -97,6 +97,11 @@ def init():
             if 'error' in mapping_insert_result:
                 return jsonify({"error": f"An error occurred during server-shard mapping insertion: {mapping_insert_result['error']}"}), 500
 
+            for shard in shards:
+                sid = shard['Shard_id']
+                servers_list = hp.servers_given_shard(sid, connection)
+                chash.add_shard(sid, servers_list)
+            
             connection.close()
             intialize_locks()
             return config_shards(servers)
@@ -167,12 +172,7 @@ def add_servers():
         for i in new_server_ids:
             try:
                 result = subprocess.run(["python3","Helper.py",str(i),"sharding_net1","mysqlserver","add"],stdout=subprocess.PIPE, text=True, check=True)
-                '''
-                if(obj.dic.get(i)==None):
-                    obj.N+=1
-                    obj.dic[i] = obj.N
-                    obj.add_server(obj.dic[i])
-                '''
+                
                 # add the server to the list_of_servers
                 list_of_servers.append(str(i))
             except Exception as e:
@@ -198,8 +198,9 @@ def add_servers():
                 for i in shards:
                     if i in cur_shards:
                         #servers_list=hp.servers_given_shard(i,connection)
-                        #server_id=lb.get_servers_list(servers_list)
-                        server_id='server1'
+                        
+                        server_id=chash.get_server(i)
+                        #server_id='server1'
                         print(ser,flush=True)
                         copy_shard_data_to_given_server(connection,server_id,i,ser)
 
@@ -211,6 +212,18 @@ def add_servers():
             if 'error' in mapping_insert_result:
                 return jsonify({"error": f"An error occurred during server-shard mapping insertion: {mapping_insert_result['error']}"}), 500
 
+            tempdict = {}
+            for server in servers:
+                shard_list = servers[server]
+                for shard in shard_list:
+                    if shard not in tempdict:
+                        tempdict[shard] = [server]
+                    else:
+                        tempdict[shard].append(server)
+
+            for shard_id in tempdict:
+                chash.add_shard(shard_id, tempdict[shard_id])
+            
             connection.close()   ####look at once
             intialize_locks()
             
