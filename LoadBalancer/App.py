@@ -133,7 +133,7 @@ def copy_shard_data_to_given_server(connection,server_id,shard_id,write_server):
         config_payload2 = {
             "shard": shard_id,
             "curr_idx" : valid_idx,
-            "data": data_entries
+            "data": data_entries["data"]
         }
         config_response2 = requests.post(f"http://{write_server}:5000/write", json=config_payload2).json()
         release_lock(shard_id)
@@ -256,7 +256,7 @@ def remove_servers():
 
     
             rem_servers=len(current_servers)-n
-            if(rem_servers<6):
+            if(rem_servers<2):  #here <6
                 msg = {
                     "message":"<Error>  Cannot remove servers as the available server count after this operation will be less than 6.",
                     "status" : "Faliure"
@@ -539,12 +539,13 @@ if __name__ == "__main__":
         except Exception as e:
             # pass
             print("error",e)
+        list_of_servers.append(i)
+
         '''
         if(obj.dic.get(i)==None):
             obj.N+=1
             obj.dic[i] = obj.N
         obj.add_server(obj.dic[i])
-        list_of_servers.append(i)
         #implement hashing
         '''
 
