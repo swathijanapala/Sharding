@@ -305,6 +305,85 @@ def reading_data():
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
+#############
+@app.route('/update', methods=['PUT'])
+def update_student_info():
+
+    try:
+        req_payload = request.json
+        if 'stud_id' in req_payload and 'data' in req_payload:
+
+            stud_id = req_payload['stud_id']
+            data = req_payload['data']
+            connection = mysql.connector.connect(**db_config)
+            shard_id = hp.get_shard_ids_given_studId(stud_id)
+
+            servers_list = hp.servers_given_shard(shard_id, connection)
+            for server_id in servers_list:
+                
+                config_payload = {
+                    "shard": [shard_id],
+                    "stud_id" : stud_id,
+                    "data" : data
+                }
+
+                acquire_lock(shard_id)
+                config_response = requests.put(f"http://{server_id}:5000/update", json=config_payload).json()
+                release_lock(shard_id)
+
+            return jsonify({"message": f"Data entry for Stud_id: {stud_id} updated", 
+                            "status" : "success"}
+                            ), 200
+
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    finally:
+        if connection and connection.is_connected():
+            connection.close()
+
+
+@app.route('/del', methods=['DELETE'])
+def remove_student_info():
+
+    try:
+        req_payload = request.json
+        if 'stud_id' in req_payload:
+            
+            stud_id = req_payload['stud_id']
+            connection = mysql.connector.connect(**db_config)
+            shard_id = hp.get_shard_ids_given_studId(stud_id)
+
+            servers_list = hp.servers_given_shard(shard_id, connection)
+            for server_id in servers_list:
+                
+                config_payload = {
+                    "shard": [shard_id],
+                    "stud_id" : stud_id,
+                }
+
+                acquire_lock(shard_id)
+                config_response = requests.delete(f"http://{server_id}:5000/del", json=config_payload).json()
+                release_lock(shard_id)
+
+            return jsonify({"message": f"Data entry with Stud_id:{stud_id} removed", 
+                            "status" : "success"}
+                            ), 200
+
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    finally:
+        if connection and connection.is_connected():
+            connection.close()
+
+##########################
+
+
+
+
 shard_locks = {}
 def intialize_locks():
     connection = mysql.connector.connect(**db_config) 
