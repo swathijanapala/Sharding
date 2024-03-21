@@ -33,14 +33,16 @@ list_of_servers = []
 
 def config_shards(servers):
     global schema
+    config_responses={}
     print(servers,flush=True)
     for server, server_shards in servers.items():
         config_payload = {
             "schema": schema,
             "shards": server_shards
         }
-
+        print('configging',flush=True)
         config_response = requests.post(f"http://{server}:5000/config/{server}", json=config_payload).json()
+        print('over_configging',flush=True)
         #if(config_response.status_code==500):
         #break
         config_responses[server] = config_response
@@ -276,20 +278,27 @@ def reading_data():
 
             connection = mysql.connector.connect(**db_config)            
             shards_queried = hp.get_queried_shards_with_ranges(connection,low, high)
+            print(shards_queried,flush=True)
             data=[]
-            for i,j in shards_queried.items():
-                servers_shard=hp.servers_given_shard(i,connection)
+            keys=[]
+            for item in shards_queried:
+                shardid=item["Shard_id"]
+                keys.append(shardid)
+                servers_shard=hp.servers_given_shard(shardid,connection)
+                print(servers_shard,flush=True)
                 #mapping=get(servers_shard)
                 mapping_serverid='server1'   ###### consistent hashing
                 config_payload = {
-                    "shard": i,
-                    "Studi_id" : j
+                    "shard": shardid,
+                    "Stud_id" : item["Ranges"]
                 }
+                print(config_payload,flush=True)
                 config_response = requests.post(f"http://{mapping_serverid}:5000/read", json=config_payload).json()
                 data.extend(config_response)
+            print(data,flush=True)
             connection.close()
 
-            return jsonify({"shards_queried": list(shards_queried.keys()), "data": data, "status": "success"}), 200
+            return jsonify({"shards_queried": keys, "data": data, "status": "success"}), 200
 
         return jsonify({"error": "Invalid payload structure"}), 400
 
@@ -318,11 +327,8 @@ def write_data_load_balancer():
     try:
         request_payload = request.json
         data_entries = request_payload.get('data')
-        stud_id = data_entries['Stud_id']
-        stud_name = data_entries['Stud_name']
-        stud_marks = data_entries['Stud_marks']
         if data_entries and isinstance(data_entries, list):
-            if stud_id is not None and stud_name and stud_marks is not None:
+            if data_entries is not None:
                 connection = mysql.connector.connect(**db_config) 
                 ind_shard_data=hp.get_shard_ids_corresponding_write_operations(connection,data_entries)
                 for i,j in ind_shard_data.items():
@@ -403,7 +409,8 @@ def pathRoute1(path):
 # continuously check heartbeat
 # Define the heartbeat function
 def heartbeat(list_of_servers):
-    connection = mysql.connector.connect(**db_config) 
+    connection = mysql.connector.connect(**db_config)
+    '''
     while True:
         list_of_servers = list(set(list_of_servers))   # remove duplicates
         for server in list_of_servers:
@@ -429,7 +436,7 @@ def heartbeat(list_of_servers):
                     print("Failed to add a new server.")
                 
         time.sleep(5)  # Wait for 5 seconds before checking again
-
+    '''
 
 
 
@@ -459,6 +466,6 @@ if __name__ == "__main__":
         '''
 
     # Create a thread to run the heartbeat function
-    heartbeat_thread = threading.Thread(target=heartbeat, args=(list_of_servers,))
-    heartbeat_thread.start()
+    # heartbeat_thread = threading.Thread(target=heartbeat, args=(list_of_servers,))
+    # heartbeat_thread.start()
     app.run(host = "0.0.0.0",debug = True)
