@@ -29,7 +29,23 @@ app = Flask(__name__)
 app.config.from_object('config.Config')
 obj = lb.ConsistentHashing()
 list_of_servers = []
-#global schema
+
+shard_locks = {}
+
+def intialize_locks():
+    connection = mysql.connector.connect(**db_config) 
+    shard_ids=hp.get_shard_ids(connection)  #Getting all current shard_ids
+    for shard in shard_ids:
+        shard_locks[shard] = threading.Lock()
+    connection.close()
+
+def acquire_lock(shard_id):
+    if shard_id in shard_locks:
+        shard_locks[shard_id].acquire()
+
+def release_lock(shard_id):
+    if shard_id in shard_locks:
+        shard_locks[shard_id].release()
 
 def config_shards(servers):
     global schema
@@ -81,6 +97,7 @@ def init():
                 return jsonify({"error": f"An error occurred during server-shard mapping insertion: {mapping_insert_result['error']}"}), 500
 
             connection.close()
+            intialize_locks()
             return config_shards(servers)
 
         return jsonify({"error": "Invalid payload structure"}), 400
@@ -194,7 +211,8 @@ def add_servers():
                 return jsonify({"error": f"An error occurred during server-shard mapping insertion: {mapping_insert_result['error']}"}), 500
 
             connection.close()   ####look at once
-
+            intialize_locks()
+            
             return jsonify({
                     "N": n,
                     "message": f"Add Server:{', '.join(new_server_ids)}",
@@ -306,22 +324,12 @@ def reading_data():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 
-shard_locks = {}
-def intialize_locks():
-    connection = mysql.connector.connect(**db_config) 
-    shard_ids=hp.get_shard_ids(connection)
-    #here kength is enough
-    for i in range(1, len(shard_ids)+1):
-        shard_locks[i] = threading.Lock()
-    connection.close()
-
-def acquire_lock(shard_id):
-    if shard_id in shard_locks:
-        shard_locks[shard_id].acquire()
-
-def release_lock(shard_id):
-    if shard_id in shard_locks:
-        shard_locks[shard_id].release()
+def write_to_shard(server, config_payload, shard_id):
+    try:
+        acquire_lock(shard_id)
+        config_response = requests.post(f"http://{server}:5000/write", json=config_payload).json()
+    finally:
+        release_lock(shard_id)
 
 @app.route('/write', methods=['POST'])
 def write_data_load_balancer():
@@ -329,28 +337,28 @@ def write_data_load_balancer():
         request_payload = request.json
         data_entries = request_payload.get('data')
         if data_entries and isinstance(data_entries, list):
-            if data_entries is not None:
-                connection = mysql.connector.connect(**db_config) 
-                ind_shard_data=hp.get_shard_ids_corresponding_write_operations(connection,data_entries)
-                for i,j in ind_shard_data.items():
-                    #server=get_server(i) #get server using consistent hashing
-                    server='server1'
-                    config_payload = {
-                        "shard": i,
-                        "curr_idx" : j['valid_idx'],
-                        "data":j['entries']
-                    }
-                    acquire_lock(i)
-                    config_response = requests.post(f"http://{server}:5000/write", json=config_payload).json()
-                    release_lock(i)
+            connection = mysql.connector.connect(**db_config) 
+            ind_shard_data = hp.get_shard_ids_corresponding_write_operations(connection, data_entries)
+            threads = []
 
-                return jsonify({"message": f"{len(data_entries)} Data entries added", "status": "success"}), 200
+            for shard_id, shard_data in ind_shard_data.items():
+                server = 'server1'  # Get server using consistent hashing
+                config_payload = {
+                    "shard": shard_id,
+                    "curr_idx": shard_data['valid_idx'],
+                    "data": shard_data['entries']
+                }
+                thread = threading.Thread(target=write_to_shard, args=(server, config_payload, shard_id))
+                threads.append(thread)
+                thread.start()
 
-            else:
-                return jsonify({"error": "Invalid payload structure"}), 400
+            for thread in threads:
+                thread.join()  # Wait for all threads to complete
+
+            connection.close()
+            return jsonify({"message": f"{len(data_entries)} Data entries added", "status": "success"}), 200
         else:
             return jsonify({"error": "Invalid payload structure"}), 400
-
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
