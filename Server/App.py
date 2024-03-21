@@ -37,7 +37,7 @@ def errorPage(k):
 # Replace these values with your MySQL database credentials
 db_config = {
     
-    'host': 'server1',
+    'host': 'server0',
     'user': 'root',
     'password': 'user12',
     'database': 'STUDENT',
@@ -47,6 +47,8 @@ db_config = {
 
 def initialize_shard_tables(payload,server_id):
     try:
+        db_config['host'] = server_id
+        print("in server  ",db_config,flush=True)
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
     except Exception as e:
@@ -57,10 +59,11 @@ def initialize_shard_tables(payload,server_id):
         columns = schema.get('columns', [])
         dtypes = schema.get('dtypes', [])
         shards = payload.get('shards', [])
-
+        
         # Create shard tables in the database
         for shard in shards:
             table_name = f'StudT_{shard}'
+            print(f"creating table {table_name}")
             create_table_query = f'''
                 CREATE TABLE IF NOT EXISTS {table_name} (
                     {', '.join([f'{column} INT' if dtype == 'Number' else f'{column} VARCHAR(100)' if dtype == 'String' else f'{column} {dtype}' for column, dtype in zip(columns, dtypes)])},
@@ -145,17 +148,20 @@ def copy_data_entries(shard):
         select_query = f'SELECT * FROM {table_name}'
         cursor.execute(select_query)
         data_entries = cursor.fetchall()
-
+        print("data entries of server",data_entries)
+        if(data_entries):
         # Format the data entries into a list of dictionaries
-        formatted_data = []
-        for entry in data_entries:
-            formatted_data.append({
-                "Stud_id": entry[0],
-                "Stud_name": entry[1],
-                "Stud_marks": entry[2],
-            })
+            formatted_data = []
+            for entry in data_entries:
+                formatted_data.append({
+                    "Stud_id": entry[0],
+                    "Stud_name": entry[1],
+                    "Stud_marks": entry[2],
+                })
 
-        return {"data": formatted_data, "status": "success"}
+            return {"data": formatted_data, "status": "success"}
+        else:
+            return { "status": "success"}
 
     except Exception as e:
         return {"error": f"An error occurred: {str(e)}"}

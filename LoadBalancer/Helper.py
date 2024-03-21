@@ -216,7 +216,7 @@ def get_valididx_given_shardid(connection,shard_id):
         cursor.execute(query)
         result = cursor.fetchone()
         if result:
-            return result
+            return result[0]
 
     except Exception as e:
         print(f"An error occurred while fetching shard ids: {str(e)}")

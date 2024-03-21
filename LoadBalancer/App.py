@@ -33,6 +33,7 @@ list_of_servers = []
 
 def config_shards(servers):
     global schema
+    print(schema)
     config_responses={}
     print(servers,flush=True)
     for server, server_shards in servers.items():
@@ -40,6 +41,7 @@ def config_shards(servers):
             "schema": schema,
             "shards": server_shards
         }
+        time.sleep(50)
         print('configging',flush=True)
         config_response = requests.post(f"http://{server}:5000/config/{server}", json=config_payload).json()
         print('over_configging',flush=True)
@@ -104,8 +106,9 @@ def copy_shard_data_to_given_server(connection,server_id,shard_id,write_server):
             "shards": [shard_id]
         }
         config_response = requests.get(f"http://{server_id}:5000/copy", json=config_payload).json()
+        
         data_entries = config_response.get(f'{shard_id}', [])
-
+        print("LB copy_shard_data_to_given_server",data_entries,flush=True)
         valid_idx=hp.get_valididx_given_shardid(connection,shard_id)
         print(valid_idx,flush=True)
         acquire_lock(shard_id)
@@ -170,7 +173,7 @@ def add_servers():
                     "status" : "Faliure"
                 }
                 return make_response(jsonify(msg),400)
-            print('finished',flush=true)
+            print('finished',flush=True)
 
             cur_shards=hp.get_shard_ids(connection)
             for ser,shards in servers.items():
@@ -287,10 +290,10 @@ def reading_data():
                 servers_shard=hp.servers_given_shard(shardid,connection)
                 print(servers_shard,flush=True)
                 #mapping=get(servers_shard)
-                mapping_serverid='server1'   ###### consistent hashing
+                mapping_serverid=req_payload['server_id']  ###### consistent hashing
                 config_payload = {
                     "shard": shardid,
-                    "Stud_id" : item["Ranges"]
+                    "Stud_id" : item["Ranges"]  
                 }
                 print(config_payload,flush=True)
                 config_response = requests.post(f"http://{mapping_serverid}:5000/read", json=config_payload).json()
@@ -454,7 +457,7 @@ def pathRoute1(path):
             obj.N+=1
             server_name = "Sa1wasd"+str(obj.N)
             obj.dic[server_name] = obj.N
-            result = subprocess.run(["python","Helper.py",server_name,"distributedsystems_net1","flaskserver1","add"],stdout=subprocess.PIPE, text=True, check=True)
+            result = subprocess.run(["python","Helper.py",server_name,"sharding_net1","flaskserver1","add"],stdout=subprocess.PIPE, text=True, check=True)
             obj.add_server(obj.dic[server_name])
             continue
         

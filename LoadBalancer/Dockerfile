@@ -1,8 +1,8 @@
 
 FROM flaskdocker-base
-RUN apt-get update
+# RUN apt-get update
 
-RUN pip install --break-system-packages --upgrade pip
+# RUN pip install --break-system-packages --upgrade pip
 COPY . /docker-entrypoint-initdb.d/
 # RUN pip install --break-system-packages -r /docker-entrypoint-initdb.d/requirements.txt
 
