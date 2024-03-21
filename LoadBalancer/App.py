@@ -34,12 +34,12 @@ list_of_servers = []
 def config_shards(servers):
     global schema
     print(servers,flush=True)
+    config_responses = {}
     for server, server_shards in servers.items():
         config_payload = {
             "schema": schema,
             "shards": server_shards
         }
-
         config_response = requests.post(f"http://{server}:5000/config/{server}", json=config_payload).json()
         #if(config_response.status_code==500):
         #break
