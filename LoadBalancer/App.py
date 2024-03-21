@@ -29,13 +29,30 @@ app = Flask(__name__)
 app.config.from_object('config.Config')
 obj = lb.ConsistentHashing()
 list_of_servers = []
-#global schema
+
+shard_locks = {}
+
+def intialize_locks():
+    connection = mysql.connector.connect(**db_config) 
+    shard_ids=hp.get_shard_ids(connection)  #Getting all current shard_ids
+    for shard in shard_ids:
+        shard_locks[shard] = threading.Lock()
+    connection.close()
+
+def acquire_lock(shard_id):
+    if shard_id in shard_locks:
+        shard_locks[shard_id].acquire()
+
+def release_lock(shard_id):
+    if shard_id in shard_locks:
+        shard_locks[shard_id].release()
 
 def config_shards(servers):
     global schema
     print(schema)
     config_responses={}
     print(servers,flush=True)
+    config_responses = {}
     for server, server_shards in servers.items():
         config_payload = {
             "schema": schema,
@@ -81,6 +98,7 @@ def init():
                 return jsonify({"error": f"An error occurred during server-shard mapping insertion: {mapping_insert_result['error']}"}), 500
 
             connection.close()
+            intialize_locks()
             return config_shards(servers)
 
         return jsonify({"error": "Invalid payload structure"}), 400
@@ -169,7 +187,7 @@ def add_servers():
                 config_shards(servers)
             except:
                 msg = {
-                "message":"<Error> Unable to create database(s)",
+                "message":"<Error> Unable to create shards in new servers(s)",
                     "status" : "Faliure"
                 }
                 return make_response(jsonify(msg),400)
@@ -194,7 +212,8 @@ def add_servers():
                 return jsonify({"error": f"An error occurred during server-shard mapping insertion: {mapping_insert_result['error']}"}), 500
 
             connection.close()   ####look at once
-
+            intialize_locks()
+            
             return jsonify({
                     "N": n,
                     "message": f"Add Server:{', '.join(new_server_ids)}",
@@ -281,24 +300,21 @@ def reading_data():
 
             connection = mysql.connector.connect(**db_config)            
             shards_queried = hp.get_queried_shards_with_ranges(connection,low, high)
-            print(shards_queried,flush=True)
             data=[]
             keys=[]
             for item in shards_queried:
                 shardid=item["Shard_id"]
                 keys.append(shardid)
                 servers_shard=hp.servers_given_shard(shardid,connection)
-                print(servers_shard,flush=True)
+                #print(servers_shard,flush=True)
                 #mapping=get(servers_shard)
                 mapping_serverid=req_payload['server_id']  ###### consistent hashing
                 config_payload = {
                     "shard": shardid,
                     "Stud_id" : item["Ranges"]  
                 }
-                print(config_payload,flush=True)
                 config_response = requests.post(f"http://{mapping_serverid}:5000/read", json=config_payload).json()
-                data.extend(config_response)
-            print(data,flush=True)
+                data.extend(config_response['data'])
             connection.close()
 
             return jsonify({"shards_queried": keys, "data": data, "status": "success"}), 200
@@ -308,28 +324,65 @@ def reading_data():
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
+
+def write_to_shard(server, config_payload, shard_id):
+    try:
+        acquire_lock(shard_id)
+        config_response = requests.post(f"http://{server}:5000/write", json=config_payload).json()
+    finally:
+        release_lock(shard_id)
+
+@app.route('/write', methods=['POST'])
+def write_data_load_balancer():
+    try:
+        request_payload = request.json
+        data_entries = request_payload.get('data')
+        if data_entries and isinstance(data_entries, list):
+            connection = mysql.connector.connect(**db_config) 
+            ind_shard_data = hp.get_shard_ids_corresponding_write_operations(connection, data_entries)
+            threads = []
+
+            for shard_id, shard_data in ind_shard_data.items():
+                server = 'server1'  # Get server using consistent hashing
+                config_payload = {
+                    "shard": shard_id,
+                    "curr_idx": shard_data['valid_idx'],
+                    "data": shard_data['entries']
+                }
+                thread = threading.Thread(target=write_to_shard, args=(server, config_payload, shard_id))
+                threads.append(thread)
+                thread.start()
+
+            for thread in threads:
+                thread.join()  # Wait for all threads to complete
+
+            connection.close()
+            return jsonify({"message": f"{len(data_entries)} Data entries added", "status": "success"}), 200
+        else:
+            return jsonify({"error": "Invalid payload structure"}), 400
+    except Exception as e:
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+
 #############
 @app.route('/update', methods=['PUT'])
 def update_student_info():
 
     try:
         req_payload = request.json
-        if 'stud_id' in req_payload and 'data' in req_payload:
+        if 'Stud_id' in req_payload and 'data' in req_payload:
 
-            stud_id = req_payload['stud_id']
+            stud_id = req_payload['Stud_id']
             data = req_payload['data']
             connection = mysql.connector.connect(**db_config)
-            shard_id = hp.get_shard_ids_given_studId(stud_id)
-
+            shard_id = hp.get_shard_id_by_stud_id(connection, stud_id)
             servers_list = hp.servers_given_shard(shard_id, connection)
             for server_id in servers_list:
-                
                 config_payload = {
-                    "shard": [shard_id],
-                    "stud_id" : stud_id,
+                    "shard": shard_id,
+                    "Stud_id" : stud_id,
                     "data" : data
                 }
-
                 acquire_lock(shard_id)
                 config_response = requests.put(f"http://{server_id}:5000/update", json=config_payload).json()
                 release_lock(shard_id)
@@ -352,18 +405,17 @@ def remove_student_info():
 
     try:
         req_payload = request.json
-        if 'stud_id' in req_payload:
+        if 'Stud_id' in req_payload:
             
-            stud_id = req_payload['stud_id']
+            stud_id = req_payload['Stud_id']
             connection = mysql.connector.connect(**db_config)
-            shard_id = hp.get_shard_ids_given_studId(stud_id)
-
+            shard_id = hp.get_shard_id_by_stud_id(connection, stud_id)
             servers_list = hp.servers_given_shard(shard_id, connection)
             for server_id in servers_list:
                 
                 config_payload = {
-                    "shard": [shard_id],
-                    "stud_id" : stud_id,
+                    "shard": shard_id,
+                    "Stud_id" : stud_id,
                 }
 
                 acquire_lock(shard_id)
@@ -383,57 +435,6 @@ def remove_student_info():
             connection.close()
 
 ##########################
-
-
-
-
-shard_locks = {}
-def intialize_locks():
-    connection = mysql.connector.connect(**db_config) 
-    shard_ids=hp.get_shard_ids(connection)
-    #here kength is enough
-    for i in range(1, len(shard_ids)+1):
-        shard_locks[i] = threading.Lock()
-    connection.close()
-
-def acquire_lock(shard_id):
-    if shard_id in shard_locks:
-        shard_locks[shard_id].acquire()
-
-def release_lock(shard_id):
-    if shard_id in shard_locks:
-        shard_locks[shard_id].release()
-
-@app.route('/write', methods=['POST'])
-def write_data_load_balancer():
-    try:
-        request_payload = request.json
-        data_entries = request_payload.get('data')
-        if data_entries and isinstance(data_entries, list):
-            if data_entries is not None:
-                connection = mysql.connector.connect(**db_config) 
-                ind_shard_data=hp.get_shard_ids_corresponding_write_operations(connection,data_entries)
-                for i,j in ind_shard_data.items():
-                    #server=get_server(i) #get server using consistent hashing
-                    server='server1'
-                    config_payload = {
-                        "shard": i,
-                        "curr_idx" : j['valid_idx'],
-                        "data":j['entries']
-                    }
-                    acquire_lock(i)
-                    config_response = requests.post(f"http://{server}:5000/write", json=config_payload).json()
-                    release_lock(i)
-
-                return jsonify({"message": f"{len(data_entries)} Data entries added", "status": "success"}), 200
-
-            else:
-                return jsonify({"error": "Invalid payload structure"}), 400
-        else:
-            return jsonify({"error": "Invalid payload structure"}), 400
-
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 
 # routes requests to one of the avaliable servers
