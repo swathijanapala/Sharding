@@ -194,7 +194,7 @@ def get_shard_ids_corresponding_write_operations(connection, entries):
             result = cursor.fetchone()
             if result:
                 shard_id, valid_idx = result
-                if shard_id in shard_data:
+                if shard_id in shard_data.keys():
                     shard_data[shard_id]['entries'].append(entry)
                 else:
                     shard_data[shard_id] = {'valid_idx': valid_idx, 'entries': [entry]}

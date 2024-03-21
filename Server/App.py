@@ -5,7 +5,7 @@ import os
 import mysql.connector
 app = Flask(__name__)
 
-
+'''
 @app.route("/heartbeat",methods = ["GET"])
 
 def heartbeat():
@@ -14,7 +14,7 @@ def heartbeat():
         "status" : "Successful"
     }
     return make_response(jsonify(msg),200)
-
+'''
 
 @app.route("/home/<server_id>",methods = ["GET"])
 def home(server_id):
@@ -225,7 +225,6 @@ def read_data_entries(shard, stud_id_range):
 def read_data():
     try:
         request_payload = request.json
-
         shard = request_payload.get('shard')
         stud_id_range = request_payload.get('Stud_id')
 
