@@ -58,7 +58,7 @@ def config_shards(servers):
             "schema": schema,
             "shards": server_shards
         }
-        time.sleep(50)
+        # time.sleep(50)
         print('configging',flush=True)
         config_response = requests.post(f"http://{server}:5000/config/{server}", json=config_payload).json()
         print('over_configging',flush=True)
@@ -181,6 +181,7 @@ def add_servers():
                     "status" : "Faliure"
                 }
                 return make_response(jsonify(msg),400)
+        time.sleep(50)
         try:
             print('entered',flush=True)
             try:
