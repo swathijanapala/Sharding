@@ -237,7 +237,7 @@ def read_data():
 
         if shard and stud_id_range and isinstance(stud_id_range, dict):
             response = read_data_entries(shard, stud_id_range)
-            print(response,flush=True)
+            print("read endpoint in server side",response,flush=True)
             return jsonify(response), 200
         else:
             return jsonify({"error": "Invalid payload structure"}), 400
@@ -284,7 +284,6 @@ def write_data_entries(shard, curr_idx, data):
 def write_data():
     try:
         request_payload = request.json
-        print(request_payload,flush=True)
         shard = request_payload.get('shard')
         curr_idx = request_payload.get('curr_idx')
         data = request_payload.get('data')
