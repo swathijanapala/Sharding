@@ -121,8 +121,9 @@ def get_data():
         # Return the result as JSON
         return jsonify(students),200
     
-@app.route('/insert', methods=['POST'])
-def insert():
+@app.route('/insert/<server_id>', methods=['POST'])
+def insert(server_id):
+    db_config['host'] = server_id
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
@@ -137,7 +138,8 @@ def insert():
     
 
 # Function to copy data entries from replicas to a shard table
-def copy_data_entries(shard):
+def copy_data_entries(shard,server_id):
+    db_config['host'] = server_id
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
@@ -173,8 +175,8 @@ def copy_data_entries(shard):
             connection.close()
 
 # Endpoint to handle /copy GET requests
-@app.route('/copy', methods=['GET'])
-def copy_data():
+@app.route('/copy/<server_id>', methods=['GET'])
+def copy_data(server_id):
     try:
         request_payload = request.json
 
@@ -183,7 +185,7 @@ def copy_data():
         if shards and isinstance(shards, list):
             response_data = {}
             for shard in shards:
-                response_data[shard] = copy_data_entries(shard)
+                response_data[shard] = copy_data_entries(shard,server_id)
 
             return jsonify(response_data), 200
         else:
@@ -192,7 +194,8 @@ def copy_data():
     except Exception as e:
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
-def read_data_entries(shard, stud_id_range):
+def read_data_entries(shard, stud_id_range,server_id):
+    db_config['host'] = server_id
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
@@ -228,15 +231,15 @@ def read_data_entries(shard, stud_id_range):
             connection.close()
 
 # Endpoint to handle /read POST requests
-@app.route('/read', methods=['POST'])
-def read_data():
+@app.route('/read/<server_id>', methods=['POST'])
+def read_data(server_id):
     try:
         request_payload = request.json
         shard = request_payload.get('shard')
         stud_id_range = request_payload.get('Stud_id')
 
         if shard and stud_id_range and isinstance(stud_id_range, dict):
-            response = read_data_entries(shard, stud_id_range)
+            response = read_data_entries(shard, stud_id_range,server_id)
             print("read endpoint in server side",response,flush=True)
             return jsonify(response), 200
         else:
@@ -247,7 +250,8 @@ def read_data():
 
     
 # Function to write data entries to a shard in a particular server container
-def write_data_entries(shard, curr_idx, data):
+def write_data_entries(shard, curr_idx, data,server_id):
+    db_config['host'] = server_id
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
@@ -280,8 +284,9 @@ def write_data_entries(shard, curr_idx, data):
             connection.close()
 
 # Endpoint to handle /write POST requests
-@app.route('/write', methods=['POST'])
-def write_data():
+@app.route('/write/<server_id>', methods=['POST'])
+def write_data(server_id):
+    print(f"server Id {server_id}",flush=True)
     try:
         request_payload = request.json
         shard = request_payload.get('shard')
@@ -289,7 +294,7 @@ def write_data():
         data = request_payload.get('data')
 
         if shard and curr_idx is not None and data and isinstance(data, list):
-            response = write_data_entries(shard, curr_idx, data)
+            response = write_data_entries(shard, curr_idx, data,server_id)
             return jsonify(response), 200
         else:
             return jsonify({"error": "Invalid payload structure"}), 400
@@ -298,7 +303,8 @@ def write_data():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     
 # Function to update a data entry in a shard
-def update_data_entry(payload):
+def update_data_entry(payload,server_id):
+    db_config['host'] = server_id
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
@@ -340,14 +346,15 @@ def update_data_entry(payload):
             connection.close()
 
 # Endpoint to handle /update PUT requests
-@app.route('/update', methods=['PUT'])
-def update_data_entry_endpoint():
+@app.route('/update/<server_id>', methods=['PUT'])
+def update_data_entry_endpoint(server_id):
+    
     try:
         request_payload = request.json
 
         # Validate the payload structure
         if 'shard' in request_payload and 'Stud_id' in request_payload and 'data' in request_payload:
-            success = update_data_entry(request_payload)
+            success = update_data_entry(request_payload,server_id)
             if success:
                 return jsonify(success), 200
             else:
@@ -360,7 +367,8 @@ def update_data_entry_endpoint():
 
 
 # Function to delete a data entry in a shard
-def delete_data_entry(payload):
+def delete_data_entry(payload,server_id):
+    db_config['host'] = server_id
     try:
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
@@ -399,14 +407,14 @@ def delete_data_entry(payload):
             connection.close()
 
 # Endpoint to handle /del DELETE requests
-@app.route('/del', methods=['DELETE'])
-def delete_data_entry_endpoint():
+@app.route('/del/<server_id>', methods=['DELETE'])
+def delete_data_entry_endpoint(server_id):
     try:
         request_payload = request.json
 
         # Validate the payload structure
         if 'shard' in request_payload and 'Stud_id' in request_payload:
-            success = delete_data_entry(request_payload)
+            success = delete_data_entry(request_payload,server_id)
             if success:
                 return jsonify({"message": success["message"], "status": "success"}), 200
             else:
