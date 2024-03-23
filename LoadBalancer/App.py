@@ -1,6 +1,7 @@
 from flask import Flask
 from flask import jsonify, request,redirect,url_for,make_response
 import os 
+import traceback
 import ast
 import requests
 import subprocess
@@ -35,51 +36,79 @@ readers_count = 0
 mutex = threading.Lock()
 writer_sem = {}
 
+
+class ReaderWriterLock:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.readers_count = 0
+        self.write_in_progress = False
+        self.read_condition = threading.Condition(lock=self.lock)
+        self.write_condition = threading.Condition(lock=self.lock)
+
+    def acquire_read(self):
+        with self.lock:
+            while self.write_in_progress:
+                self.read_condition.wait()
+            self.readers_count += 1
+
+    def release_read(self):
+        with self.lock:
+            self.readers_count -= 1
+            if self.readers_count == 0:
+                self.write_condition.notify()
+
+    def acquire_write(self):
+        with self.lock:
+            while self.readers_count > 0 or self.write_in_progress:
+                self.write_condition.wait()
+            self.write_in_progress = True
+
+    def release_write(self):
+        with self.lock:
+            self.write_in_progress = False
+            self.read_condition.notify_all()
+            self.write_condition.notify()
+
+
+class ReaderWriterLock:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.readers_count = 0
+        self.write_in_progress = False
+        self.read_condition = threading.Condition(lock=self.lock)
+        self.write_condition = threading.Condition(lock=self.lock)
+
+    def acquire_read(self):
+        with self.lock:
+            while self.write_in_progress:
+                self.read_condition.wait()
+            self.readers_count += 1
+
+    def release_read(self):
+        with self.lock:
+            self.readers_count -= 1
+            if self.readers_count == 0:
+                self.write_condition.notify()
+
+    def acquire_write(self):
+        with self.lock:
+            while self.readers_count > 0 or self.write_in_progress:
+                self.write_condition.wait()
+            self.write_in_progress = True
+
+    def release_write(self):
+        with self.lock:
+            self.write_in_progress = False
+            self.read_condition.notify_all()
+            self.write_condition.notify()
+
 def initialize_locks(shard_ids):
+    print(f"initializing lock vars for {shard_ids}",flush=True)
     for shard_id in shard_ids:
-        shard_locks[shard_id] = threading.Lock()
-        readers_count[shard_id] = 0
-        writer_sem[shard_id] = threading.Semaphore(1)
+        shard_locks[shard_id] = ReaderWriterLock()
+ 
 
-def acquire_read_lock(shard_id):
-    if shard_id not in shard_locks:
-        initialize_locks([shard_id])
-
-    mutex.acquire()
-    #shard_locks[shard_id].acquire()
-    readers_count[shard_id] += 1
-    if readers_count[shard_id] == 1:
-        writer_sem[shard_id].acquire()
-        print("read_lock acquired",flush=True)
-    #shard_locks[shard_id].release() 
-    mutex.release()
-
-def release_read_lock(shard_id):
-    mutex.acquire()
-    readers_count[shard_id] -= 1
-    if readers_count[shard_id] == 0:
-        writer_sem[shard_id].release()
-        print("read lock released",flush=True)
-    mutex.release()
-
-def acquire_write_lock(shard_id):
-    if shard_id not in shard_locks:
-        initialize_locks([shard_id])
-
-    writer_sem[shard_id].acquire()
-    shard_locks[shard_id].acquire()
-    print("write_lock acquired",flush=True)
-
-def release_write_lock(shard_id):
-    if shard_id not in shard_locks:
-        raise ValueError(f"Lock for shard {shard_id} has not been initialized")
-
-    shard_locks[shard_id].release()
-    writer_sem[shard_id].release()
-    print("write_lock acquired",flush=True)
-
-
-def config_shards(servers):
+def config_shards(servers,method = ""):
     global schema
     print("schema in config",schema,flush=True)
     config_responses={}
@@ -89,7 +118,9 @@ def config_shards(servers):
             "schema": schema,
             "shards": server_shards
         }
-        time.sleep(50)
+        if(method=="add"):
+            time.sleep(50)
+        print('configging',flush=True)
         config_response = requests.post(f"http://{server}:5000/config/{server}", json=config_payload).json()
         config_responses[server] = config_response
     return jsonify({"message": "Configured Database", "status": "success", "config_responses": config_responses}), 200
@@ -157,20 +188,23 @@ def copy_shard_data_to_given_server(connection,server_id,shard_id,write_server):
         config_payload = {
             "shards": [shard_id]
         }
-        config_response = requests.get(f"http://{server_id}:5000/copy", json=config_payload).json()
+        config_response = requests.get(f"http://{server_id}:5000/copy/{server_id}", json=config_payload).json()
         
         data_entries = config_response.get(f'{shard_id}', [])
         print("LB copy_shard_data_to_given_server",data_entries,flush=True)
         valid_idx=hp.get_valididx_given_shardid(connection,shard_id)
         print(valid_idx,flush=True)
-        acquire_lock(shard_id)
+        shard_locks[shard_id].lock.acquire_write()
         config_payload2 = {
             "shard": shard_id,
             "curr_idx" : valid_idx,
             "data": data_entries["data"]
         }
-        config_response2 = requests.post(f"http://{write_server}:5000/write", json=config_payload2).json()
-        release_lock(shard_id)
+        print(f"copying data from {server_id} to {write_server}'s {shard_id}",flush=True)
+        print(f"data being copied is {config_payload2}",flush=True)
+        shard_locks[shard_id].lock.acquire_write()
+        config_response2 = requests.post(f"http://{write_server}:5000/write/{write_server}", json=config_payload2).json()
+        
         if config_response2.get("status") == "success":
             return True, "Data copied successfully"
         else:
@@ -202,7 +236,7 @@ def add_servers():
         for dic in new_shards:
             new_shard_ids_for_intializing_locks.append(dic["Shard_id"])
         
-        intialize_locks(new_shard_ids_for_intializing_locks)
+        initialize_locks(new_shard_ids_for_intializing_locks)
 
         for i in new_server_ids:
             try:
@@ -216,10 +250,11 @@ def add_servers():
                     "status" : "Faliure"
                 }
                 return make_response(jsonify(msg),400)
+        
         try:
             print('entered',flush=True)
             try:
-                config_shards(servers)
+                config_shards(servers,"add")
             except:
                 msg = {
                 "message":"<Error> Unable to create shards in new servers(s)",
@@ -229,19 +264,22 @@ def add_servers():
             print('finished',flush=True)
 
             cur_shards=hp.get_shard_ids(connection)
+            print(f"getting shardids {cur_shards}",flush=True)
             for ser,shards in servers.items():
                 for i in shards:
                     if i in cur_shards:
                         #servers_list=hp.servers_given_shard(i,connection)
                         server_id=chash.get_server(i)
+                        
                         #server_id='server1']
                         print("scheduled server id in add endpoint",server_id,flush=True)
                         print(ser,flush=True)
                         copy_shard_data_to_given_server(connection,server_id,i,ser)
 
-            shard_insert_result = hp.insert_shard_info(connection,new_shards)
-            if 'error' in shard_insert_result:
-                return jsonify({"error": f"An error occurred during shard info insertion: {shard_insert_result['error']}"}), 500
+            if(len(new_shards)!=0):
+                shard_insert_result = hp.insert_shard_info(connection,new_shards)
+                if 'error' in shard_insert_result:
+                    return jsonify({"error": f"An error occurred during shard info insertion: {shard_insert_result['error']}"}), 500
 
             mapping_insert_result = hp.insert_server_shard_mapping(connection,servers)
             if 'error' in mapping_insert_result:
@@ -269,7 +307,7 @@ def add_servers():
 
         except:
             msg = {
-                "message":"<Error> Unable to create database(s)",
+                "message":"<Error> Unable to create database(s)1",
                     "status" : "Faliure"
             }
             return make_response(jsonify(msg),400)
@@ -310,6 +348,7 @@ def remove_servers():
                 }
                 return make_response(jsonify(msg),400)
 
+            print("servers to remove",servers_to_remove,flush=True)
             for i in servers_to_remove:
                 try:
                     result = subprocess.run(["python3","Helper.py",str(i),"remove"],stdout=subprocess.PIPE, text=True, check=True)
@@ -323,7 +362,7 @@ def remove_servers():
                     }
                     return make_response(jsonify(msg),400)
 
-            hp.update_mapT(connection,servers_to_remove)
+            hp.update_shardt_mapt_tables(connection,servers_to_remove)
             connection.close()
 
             return jsonify({"message": {"N": rem_servers, "servers":servers_to_remove}, "status": "successful"}), 200
@@ -334,19 +373,22 @@ def remove_servers():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 def read_from_shard(connection,shard_id,mapping_serverid,range_data):
-    acquire_read_lock(shard_id)
+    if shard_id not in shard_locks:
+        shard_locks[shard_id] = ReaderWriterLock()
+    shard_locks[shard_id].acquire_read()
     try:
         print(f"lock_acquired by {shard_id} on read request",flush=True)
         config_payload = {
             "shard": shard_id,
             "Stud_id" : range_data  
         }
-        config_response = requests.post(f"http://{mapping_serverid}:5000/read", json=config_payload).json()
+        config_response = requests.post(f"http://{mapping_serverid}:5000/read/{mapping_serverid}", json=config_payload).json()
         data=config_response['data']
+
+        print("",config_response)
         return data
     finally:
-        print(f"all read requests are released",flush=True)
-        release_read_lock(shard_id)
+        shard_locks[shard_id].release_read()
 
 
 @app.route("/read", methods=["POST"])
@@ -370,12 +412,12 @@ def reading_data():
                 print(f"reading form {shardid} in read endpoint",flush=True)
                 keys.append(shardid)
                 servers_shard=hp.servers_given_shard(shardid,connection)
-                mapped_serverid=get(servers_shard)
-                print("read is mapped to this server: ",mapped_serverid,flush=True)
-                #mapped_serverid=req_payload['server_id']  ###### consistent hashing
+                print(servers_shard,flush=True)
+                mapping_ser=chash.get_server(shardid)
+                print("read endpoint load balancer,mapped server id ",mapping_ser,flush=True)
+                # mapping_serverid=req_payload['server_id']  ###### consistent hashing
                 
-                data.extend(read_from_shard(connection,shardid,mapped_serverid,item["Ranges"]))
-                print("data in read endpoint for every iteration",data,flush=True)
+                data.extend(read_from_shard(connection,shardid,mapping_serverid,item["Ranges"]))
 
             print("reading end - read endpoint",flush=True)
             connection.close()
@@ -388,11 +430,33 @@ def reading_data():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 
-def write_to_shard(connection, shard_id, shard_data):
-    acquire_write_lock(shard_id)
+def servers_given_shard(shard,connection):
+    connection = mysql.connector.connect(**db_config) 
+    print("Helper ", shard,flush=True)
     try:
+        cursor = connection.cursor()
+        select_servers_query = '''
+            SELECT Server_id FROM MapT WHERE Shard_id = %s;
+        '''
+        cursor.execute(select_servers_query, (shard,))
+        server_ids = [row[0] for row in cursor.fetchall()]
+        connection.commit()
+        cursor.close()
+        print("Helper ", server_ids,flush=True)
+        return server_ids
+    except Exception as e:
+        raise Exception(f"An error occurred while retrieving Server IDs for Shard {shard}: {str(e)}")
+
+
+def write_to_shard(connection, shard_id, shard_data):
+    
+    try:
+        if shard_id not in shard_locks:
+            shard_locks[shard_id] = ReaderWriterLock()
+            shard_locks[shard_id].acquire_write()
         s=[]
-        servers_list = hp.servers_given_shard(shard_id, connection)
+        servers_list = servers_given_shard(shard_id, connection)
+        print(f" printing servers list {servers_list}",flush=True)
         for server in servers_list:
             s.append(server)
             config_payload = {
@@ -400,11 +464,12 @@ def write_to_shard(connection, shard_id, shard_data):
                 "curr_idx": shard_data['valid_idx'],
                 "data": shard_data['entries']
             }
-            config_response = requests.post(f"http://{server}:5000/write", json=config_payload).json()
+            config_response = requests.post(f"http://{server}:5000/write/{server}", json=config_payload).json()
     except Exception as e:
         print(f"An error occurred while writing to shard {shard_id} on server {server}: {str(e)}")
+        traceback.print_exc()
     finally:
-        release_write_lock(shard_id)
+        shard_locks[shard_id].release_write()
         print("write done on all shards and releasing the locks",s,flush=True)
 
 @app.route('/write', methods=['POST'])
@@ -450,9 +515,12 @@ def update_student_info():
                     "Stud_id" : stud_id,
                     "data" : data
                 }
-                acquire_lock(shard_id)
-                config_response = requests.put(f"http://{server_id}:5000/update", json=config_payload).json()
-                release_lock(shard_id)
+                if shard_id not in shard_locks:
+                    shard_locks[shard_id] = ReaderWriterLock()
+           
+                shard_locks[shard_id].acquire_write()
+                config_response = requests.put(f"http://{server_id}:5000/update/{server_id}", json=config_payload).json()
+                shard_locks[shard_id].release_write()
 
             return jsonify({"message": f"Data entry for Stud_id: {stud_id} updated", 
                             "status" : "success"}
@@ -484,10 +552,12 @@ def remove_student_info():
                     "shard": shard_id,
                     "Stud_id" : stud_id,
                 }
+                if shard_id not in shard_locks:
+                    shard_locks[shard_id] = ReaderWriterLock()
 
-                acquire_lock(shard_id)
-                config_response = requests.delete(f"http://{server_id}:5000/del", json=config_payload).json()
-                release_lock(shard_id)
+                shard_locks[shard_id].acquire_write()
+                config_response = requests.delete(f"http://{server_id}:5000/del/{server_id}", json=config_payload).json()
+                shard_locks[shard_id].release_write()
 
             return jsonify({"message": f"Data entry with Stud_id:{stud_id} removed", 
                             "status" : "success"}

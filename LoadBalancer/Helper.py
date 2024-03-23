@@ -138,6 +138,7 @@ def get_shard_ids(connection):
         raise Exception(f"An error occurred while retrieving Shard IDs: {str(e)}")
 
 def servers_given_shard(shard,connection):
+    print("Helper ", shard,flush=True)
     try:
         cursor = connection.cursor()
         select_servers_query = '''
@@ -147,6 +148,7 @@ def servers_given_shard(shard,connection):
         server_ids = [row[0] for row in cursor.fetchall()]
         connection.commit()
         cursor.close()
+        print("Helper ", server_ids,flush=True)
         return server_ids
     except Exception as e:
         raise Exception(f"An error occurred while retrieving Server IDs for Shard {shard}: {str(e)}")
