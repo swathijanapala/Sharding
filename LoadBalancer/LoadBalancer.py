@@ -1,5 +1,6 @@
 import math
 import random
+
 class ConsistentHashing:
 
  
@@ -110,20 +111,4 @@ class ShardHandle():
             for key in d:
               if d[key] == server:
                 self.shards[j].remove_server(key)
-
-
-
-
-# sh = ShardHandle()
-# sh.add_shard('sh1', ['s1', 's2', 'server6'])
-# sh.add_shard('sh2', ['s2', 's3', 'ser32'])
-
-# sh.add_shard('sh1', ['s'])
-# sh.add_shard('sh2', ['s1', 's23', 'se'])
-
-
-# sh.remove_server_in_shard(['s1', 's', 's2'])
-
-# print(sh.get_server('sh1'))
-# print(sh.get_server('sh2'))
 
