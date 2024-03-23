@@ -31,40 +31,52 @@ app.config.from_object('config.Config')
 list_of_servers = []
 
 shard_locks = {}
-readers_count = {}
+readers_count = 0
+mutex = threading.Lock()
+writer_sem = {}
 
 def initialize_locks(shard_ids):
     for shard_id in shard_ids:
         shard_locks[shard_id] = threading.Lock()
         readers_count[shard_id] = 0
+        writer_sem[shard_id] = threading.Semaphore(1)
 
 def acquire_read_lock(shard_id):
     if shard_id not in shard_locks:
-        raise ValueError(f"Lock for shard {shard_id} has not been initialized")
+        initialize_locks([shard_id])
 
-    with shard_locks[shard_id]:
-        readers_count[shard_id] += 1
-        if readers_count[shard_id] == 1:
-            shard_locks[shard_id].acquire()
+    mutex.acquire()
+    #shard_locks[shard_id].acquire()
+    readers_count[shard_id] += 1
+    if readers_count[shard_id] == 1:
+        writer_sem[shard_id].acquire()
+        print("read_lock acquired",flush=True)
+    #shard_locks[shard_id].release() 
+    mutex.release()
 
 def release_read_lock(shard_id):
-    with shard_locks[shard_id]:
-        readers_count[shard_id] -= 1
-        if readers_count[shard_id] == 0:
-            shard_locks[shard_id].release()
-
+    mutex.acquire()
+    readers_count[shard_id] -= 1
+    if readers_count[shard_id] == 0:
+        writer_sem[shard_id].release()
+        print("read lock released",flush=True)
+    mutex.release()
 
 def acquire_write_lock(shard_id):
     if shard_id not in shard_locks:
-        raise ValueError(f"Lock for shard {shard_id} has not been initialized")
+        initialize_locks([shard_id])
 
+    writer_sem[shard_id].acquire()
     shard_locks[shard_id].acquire()
+    print("write_lock acquired",flush=True)
 
 def release_write_lock(shard_id):
     if shard_id not in shard_locks:
         raise ValueError(f"Lock for shard {shard_id} has not been initialized")
 
     shard_locks[shard_id].release()
+    writer_sem[shard_id].release()
+    print("write_lock acquired",flush=True)
 
 
 def config_shards(servers):
@@ -324,6 +336,7 @@ def remove_servers():
 def read_from_shard(connection,shard_id,mapping_serverid,range_data):
     acquire_read_lock(shard_id)
     try:
+        print(f"lock_acquired by {shard_id} on read request",flush=True)
         config_payload = {
             "shard": shard_id,
             "Stud_id" : range_data  
@@ -332,6 +345,7 @@ def read_from_shard(connection,shard_id,mapping_serverid,range_data):
         data=config_response['data']
         return data
     finally:
+        print(f"all read requests are released",flush=True)
         release_read_lock(shard_id)
 
 
@@ -355,12 +369,13 @@ def reading_data():
                 shardid=item["Shard_id"]
                 print(f"reading form {shardid} in read endpoint",flush=True)
                 keys.append(shardid)
-                #servers_shard=hp.servers_given_shard(shardid,connection)
-                #print(servers_shard,flush=True)
-                #mapping=get(servers_shard)
-                mapping_serverid=req_payload['server_id']  ###### consistent hashing
+                servers_shard=hp.servers_given_shard(shardid,connection)
+                mapped_serverid=get(servers_shard)
+                print("read is mapped to this server: ",mapped_serverid,flush=True)
+                #mapped_serverid=req_payload['server_id']  ###### consistent hashing
                 
-                data.extend(read_from_shard(connection,shardid,mapping_serverid,item["Ranges"]))
+                data.extend(read_from_shard(connection,shardid,mapped_serverid,item["Ranges"]))
+                print("data in read endpoint for every iteration",data,flush=True)
 
             print("reading end - read endpoint",flush=True)
             connection.close()
