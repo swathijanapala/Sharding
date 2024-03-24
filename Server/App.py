@@ -5,7 +5,7 @@ import os
 import mysql.connector
 app = Flask(__name__)
 
-'''
+
 @app.route("/heartbeat",methods = ["GET"])
 
 def heartbeat():
@@ -14,7 +14,6 @@ def heartbeat():
         "status" : "Successful"
     }
     return make_response(jsonify(msg),200)
-'''
 
 @app.route("/home/<server_id>",methods = ["GET"])
 def home(server_id):
@@ -49,7 +48,7 @@ def initialize_shard_tables(payload,server_id):
     db_config['host'] = server_id
     try:
         db_config['host'] = server_id
-        print("in server  ",db_config,flush=True)
+        #print("in server  ",db_config,flush=True)
         connection = mysql.connector.connect(**db_config)
         cursor = connection.cursor()
     except Exception as e:
@@ -322,7 +321,7 @@ def update_data_entry(payload,server_id):
         '''
         cursor.execute(check_query)
         existing_entry = cursor.fetchone()
-
+        #print("existing_entry in update endpoint",existing_entry,flush=True)
         if existing_entry:
             update_query = f'''
                 UPDATE {table_name}
@@ -355,10 +354,10 @@ def update_data_entry_endpoint(server_id):
         # Validate the payload structure
         if 'shard' in request_payload and 'Stud_id' in request_payload and 'data' in request_payload:
             success = update_data_entry(request_payload,server_id)
-            if success:
+            if success["status"]=="success":
                 return jsonify(success), 200
             else:
-                return jsonify({"error": "Failed to update data entry"}), 500
+                return jsonify({"error": "Failed to update data entry","status":"not_found"}), 500
         else:
             return jsonify({"error": "Invalid payload structure"}), 400
 
@@ -378,7 +377,6 @@ def delete_data_entry(payload,server_id):
 
         table_name = f'StudT_{shard}'
 
-        # Check if the entry exists in the database
         check_query = f'''
             SELECT * FROM {table_name}
             WHERE Stud_id = {stud_id};
@@ -387,7 +385,6 @@ def delete_data_entry(payload,server_id):
         existing_entry = cursor.fetchone()
 
         if existing_entry:
-            # Entry exists, proceed with deletion
             delete_query = f'''
                 DELETE FROM {table_name}
                 WHERE Stud_id = {stud_id};
@@ -397,7 +394,7 @@ def delete_data_entry(payload,server_id):
 
             return {"message": f"Data entry with Stud_id: {stud_id} removed", "status": "success"}
         else:
-            return {"message": f"Data entry with Stud_id: {stud_id} not found", "status": "not_found"}
+            return {"message": f"Data entry with Stud_id: {stud_id} not found", "status":"not_found"}
 
     except Exception as e:
         return {"error": f"An error occurred: {str(e)}"}
@@ -412,13 +409,12 @@ def delete_data_entry_endpoint(server_id):
     try:
         request_payload = request.json
 
-        # Validate the payload structure
         if 'shard' in request_payload and 'Stud_id' in request_payload:
             success = delete_data_entry(request_payload,server_id)
-            if success:
+            if success["status"]=="success":
                 return jsonify({"message": success["message"], "status": "success"}), 200
             else:
-                return jsonify({"error": "Failed to delete data entry"}), 500
+                return jsonify({"error": "Failed to delete data entry","status": "not_found"}), 500
         else:
             return jsonify({"error": "Invalid payload structure"}), 400
 
