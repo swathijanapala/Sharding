@@ -1,6 +1,5 @@
 import asyncio
 import aiohttp
-import matplotlib.pyplot as plt
 import time, random, uuid
 import json
  
@@ -18,7 +17,6 @@ def generate_unique_id():
 def generate_name():
     name = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=6))
     return name
-
 
 
 async def send_10k_write_req():
@@ -50,7 +48,6 @@ async def send_10k_write_req():
 
     write_time = time.time() - start_time
     print('write speed for 10000 requests: ', write_time)
-
 
 
 async def send_10k_read_req():
