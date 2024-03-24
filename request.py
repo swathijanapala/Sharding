@@ -19,12 +19,12 @@ def generate_name():
     return name
 
 
-async def send_10k_write_req():
-
+async def send_10k_write_req(no_of_requests):
+    
     url_write = "http://127.0.0.1:5000/write"
     cnt = 0
     start_time = time.time()
-    while (cnt < 10000):
+    while (cnt < no_of_requests):
         n = 1
         temp, write_payload = {}, {}
         write_payload['data'] = []
@@ -47,15 +47,15 @@ async def send_10k_write_req():
         cnt += 1
 
     write_time = time.time() - start_time
-    print('write speed for 10000 requests: ', write_time)
+    print(f'write speed for {no_of_requests} requests: ', write_time)
 
 
-async def send_10k_read_req():
+async def send_10k_read_req(no_of_requests):
     
     url_read = "http://127.0.0.1:5000/read"
     cnt = 0
     start_time, read_time = time.time(), 0
-    while (cnt < 10000):
+    while (cnt < no_of_requests):
 
         high = random.randint(0, 999999)
         low = random.randint(0, high)
@@ -78,14 +78,15 @@ async def send_10k_read_req():
             pass
         cnt += 1
 
-    print('read speed for 10000 requests: ', read_time)
+    print(f'read speed for {no_of_requests} requests: ', read_time)
 
 
 async def main():
 
     # A1 task
-    await send_10k_write_req()
-    await send_10k_read_req()
+    no_of_requests = 10000
+    await send_10k_write_req(no_of_requests)
+    await send_10k_read_req(no_of_requests)
     
  
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 from flask import Flask
 from flask import jsonify, request,redirect,url_for,make_response
 import os 
+import re
 import traceback
 import ast
 import requests
@@ -30,6 +31,12 @@ db_config = {
 app = Flask(__name__)
 app.config.from_object('config.Config')
 
+
+def generate_unique_id():
+    id = uuid.uuid4()  
+    hash_id = hash(id)  
+    return abs(hash_id) % 1000
+global list_of_servers
 list_of_servers = []
 
 shard_locks = {}
@@ -192,8 +199,27 @@ def add_servers():
         if n > len(servers):
             return jsonify({"message": "Number of new servers (n) is greater than newly added instances", "status": "failure"}), 400
         
+
         k=n-len(servers)
         new_server_ids=list(servers.keys())
+        pattern = r"[A-Za-z]*\[\d+\]"
+        # List to store matches
+        matches = []
+
+        # Iterate over each string and find matches
+        for string in new_server_ids:
+            matches.extend(re.findall(pattern, string))
+
+        print(matches)
+        if(len(matches)>0):
+            for match in matches:
+                shard_items_of_servers = servers[match]
+                del servers[match]
+                index = new_server_ids.index(match)
+                i1 = new_server_ids[index].find("[")
+                new_server_ids[index] = new_server_ids[index][:i1]+str(generate_unique_id())
+                servers[new_server_ids[index]] = shard_items_of_servers
+            
         #print(new_server_ids,flush=True)
 
         new_shard_ids_for_intializing_locks=[]
@@ -231,7 +257,7 @@ def add_servers():
                 for i in shards:
                     if i in cur_shards:
                         server_id=chash.get_server(i)
-                        print("scheduled server id in add endpoint",server_id,flush=True)
+                        # print("scheduled server id in add endpoint",server_id,flush=True)
                         #print(ser,flush=True)
                         copy_shard_data_to_given_server(connection,server_id,i,ser)
 
@@ -300,14 +326,14 @@ def remove_servers():
 
     
             rem_servers=len(current_servers)-n
-            if(rem_servers<2):  #here <6
+            if(rem_servers<6):  #here <6
                 msg = {
                     "message":"<Error>  Cannot remove servers as the available server count after this operation will be less than 6.",
                     "status" : "Faliure"
                 }
                 return make_response(jsonify(msg),400)
 
-            print("servers to remove",servers_to_remove,flush=True)
+            # print("servers to remove",servers_to_remove,flush=True)
             for i in servers_to_remove:
                 try:
                     result = subprocess.run(["python3","Helper.py",str(i),"remove"],stdout=subprocess.PIPE, text=True, check=True)
@@ -336,7 +362,7 @@ def read_from_shard(connection,shard_id,mapping_serverid,range_data):
         shard_locks[shard_id] = ReaderWriterLock()
     shard_locks[shard_id].acquire_read()
     try:
-        print(f"lock_acquired by {shard_id} on read request",flush=True)
+        # print(f"lock_acquired by {shard_id} on read request",flush=True)
         config_payload = {
             "shard": shard_id,
             "Stud_id" : range_data  
@@ -344,7 +370,7 @@ def read_from_shard(connection,shard_id,mapping_serverid,range_data):
         config_response = requests.post(f"http://{mapping_serverid}:5000/read/{mapping_serverid}", json=config_payload).json()
         data=config_response['data']
 
-        print("",config_response)
+        # print("",config_response)
         return data
     finally:
         shard_locks[shard_id].release_read()
@@ -370,7 +396,7 @@ def reading_data():
                 keys.append(shardid)
                 servers_shard=hp.servers_given_shard(shardid,connection)
                 mapping_ser=chash.get_server(shardid)
-                print("read endpoint load balancer,mapped server id ",mapping_ser,flush=True)
+                # print("read endpoint load balancer,mapped server id ",mapping_ser,flush=True)
                 # mapping_serverid=req_payload['server_id']  ###### consistent hashing
                 
                 data.extend(read_from_shard(connection,shardid,mapping_ser,item["Ranges"]))
@@ -409,7 +435,7 @@ def write_to_shard(connection, shard_id, shard_data):
         shard_locks[shard_id].acquire_write()
         s=[]
         servers_list = servers_given_shard(shard_id, connection)
-        print(f" printing servers list in write_to_shard {servers_list} in {shard_id}",flush=True)
+        # print(f" printing servers list in write_to_shard {servers_list} in {shard_id}",flush=True)
         for server in servers_list:
             s.append(server)
             config_payload = {
@@ -639,11 +665,12 @@ def get_shardid_given_server(connection,server):
 
 # continuously check heartbeat
 # Define the heartbeat function
-def heartbeat(list_of_servers):
+def heartbeat():
+    global list_of_servers
     connection = mysql.connector.connect(**db_config)
     while True:
         list_of_servers = list(set(list_of_servers))   # remove duplicates
-        print(list_of_servers)
+        
         for server in list_of_servers:
             try:
                 response = requests.get(f'http://{server}:5000/heartbeat')
@@ -682,7 +709,7 @@ def errorPage(k):
 
 if __name__ == "__main__":
     # 6 replicas of server are maintained
-    for i in ["server0","server1"]:#,"server2","server3","server4","server5"]:
+    for i in ["Server0","Server1","Server2","Server3","Server4","Server5"]:
         try:
             result = subprocess.run(["python3","Helper.py",str(i),"sharding_net1","mysqlserver","add"],stdout=subprocess.PIPE, text=True, check=True)
         except Exception as e:
@@ -693,6 +720,6 @@ if __name__ == "__main__":
 
     # Create a thread to run the heartbeat function
     time.sleep(60)
-    heartbeat_thread = threading.Thread(target=heartbeat, args=(list_of_servers,))
+    heartbeat_thread = threading.Thread(target=heartbeat )
     heartbeat_thread.start()
     app.run(host = "0.0.0.0",debug = True)

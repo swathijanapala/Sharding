@@ -150,7 +150,7 @@ def copy_data_entries(shard,server_id):
         select_query = f'SELECT * FROM {table_name}'
         cursor.execute(select_query)
         data_entries = cursor.fetchall()
-        print("data entries of server",data_entries)
+        # print("data entries of server",data_entries)
         if(data_entries):
         # Format the data entries into a list of dictionaries
             formatted_data = []
@@ -239,7 +239,7 @@ def read_data(server_id):
 
         if shard and stud_id_range and isinstance(stud_id_range, dict):
             response = read_data_entries(shard, stud_id_range,server_id)
-            print("read endpoint in server side",response,flush=True)
+            
             return jsonify(response), 200
         else:
             return jsonify({"error": "Invalid payload structure"}), 400
@@ -285,7 +285,7 @@ def write_data_entries(shard, curr_idx, data,server_id):
 # Endpoint to handle /write POST requests
 @app.route('/write/<server_id>', methods=['POST'])
 def write_data(server_id):
-    print(f"server Id {server_id}",flush=True)
+    
     try:
         request_payload = request.json
         shard = request_payload.get('shard')
