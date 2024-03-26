@@ -1,7 +1,6 @@
 import asyncio
 import aiohttp
 import time, random, uuid
-import json
  
 async def make_request(session, method, url, payload):
 
@@ -9,10 +8,11 @@ async def make_request(session, method, url, payload):
         async with session.post(url, json = payload) as response:
             return await response.text()
 
-def generate_unique_id():
-    id = uuid.uuid4()  
-    hash_id = hash(id)  
-    return abs(hash_id) % 1000000 
+def generate_unique_id(existing_ids):
+    id = random.randint(0, 16000)
+    while id in existing_ids:
+        id = random.randint(0, 16000)
+    return int(id)
 
 def generate_name():
     name = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=6))
@@ -22,15 +22,17 @@ def generate_name():
 async def send_10k_write_req(no_of_requests):
     
     url_write = "http://127.0.0.1:5000/write"
-    cnt = 0
+    cnt, existing_ids = 0, set()
     start_time = time.time()
+
     while (cnt < no_of_requests):
-        n = 1
+        n = random.randint(1, 3)
         temp, write_payload = {}, {}
         write_payload['data'] = []
+
         for i in range(n):
             sid = generate_unique_id()
-            #existing_ids.add(sid)
+            existing_ids.add(sid)
             sname = generate_name()
             smarks = random.randint(0, 101)
 
@@ -57,7 +59,7 @@ async def send_10k_read_req(no_of_requests):
     start_time, read_time = time.time(), 0
     while (cnt < no_of_requests):
 
-        high = random.randint(0, 999999)
+        high = random.randint(0, 16000)
         low = random.randint(0, high)
         read_payload = {"Stud_id": {"low":low, "high":high}}
 
@@ -83,10 +85,10 @@ async def send_10k_read_req(no_of_requests):
 
 async def main():
 
-    # A1 task
     no_of_requests = 10000
     await send_10k_write_req(no_of_requests)
     await send_10k_read_req(no_of_requests)
+
     
  
 if __name__ == "__main__":
