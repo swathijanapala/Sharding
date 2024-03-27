@@ -709,7 +709,7 @@ def errorPage(k):
 
 if __name__ == "__main__":
     # 6 replicas of server are maintained
-    for i in ["Server0","Server1","Server2","Server3","Server4","Server5"]:
+    for i in ["Server0","Server1","Server2","Server3","Server4","Server5", 'Server6']:
         try:
             result = subprocess.run(["python3","Helper.py",str(i),"sharding_net1","mysqlserver","add"],stdout=subprocess.PIPE, text=True, check=True)
         except Exception as e:
