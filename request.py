@@ -9,10 +9,10 @@ async def make_request(session, method, url, payload):
             return await response.text()
 
 def generate_unique_id(existing_ids):
-    id = random.randint(0, 16000)
-    while id in existing_ids:
-        id = random.randint(0, 16000)
-    return int(id)
+
+    generated_uuid = uuid.uuid4()
+    random_id = int(str(generated_uuid)[:5])%16000
+    return random_id
 
 def generate_name():
     name = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=6))
